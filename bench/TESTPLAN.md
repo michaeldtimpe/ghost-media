@@ -16,12 +16,15 @@ Tame Impala, show me lyrics, isshin REEL 2024, Disengaging. The bench prefers th
 over the archive drive.
 
 **Models staged (no fresh download needed for these two):**
-- `ollama-qwen7b` → **pulled** (`qwen2.5vl:7b`, 6 GB).
-- `mlx-gemma3` → **copied** from the local archive `/Volumes/home/hub`
-  (`mlx-community/gemma-3-27b-it-4bit`, 16 GB) into `~/.cache/huggingface/hub`.
-  `mlx-vlm 0.5.0` installed. (Archive note: `/Volumes/home/hub` is a HF cache full of
-  *text* MLX models; **gemma-3-27b is the only vision model there** — Qwen2.5-VL,
-  InternVL, MiniCPM-V are NOT in it and must be downloaded.)
+- `ollama-qwen7b` → **pulled** (`qwen2.5vl:7b`, 6 GB). `ollama list` shows it.
+- `mlx-gemma3` → **copied + verified** from the local archive `/Volumes/home/hub`
+  (`mlx-community/gemma-3-27b-it-4bit`) into `~/.cache/huggingface/hub`; confirmed
+  resolvable offline via `huggingface_hub.snapshot_download(local_files_only=True)`
+  (all weight/processor files present). `mlx-vlm 0.5.0` installed. Note: `cp -R`
+  dereferenced the HF symlinks, so the cache entry is ~31 GB (blobs + snapshots both
+  real) instead of 16 GB — harmless, just disk. (Archive note: `/Volumes/home/hub`
+  is a HF cache of mostly *text* MLX models; **gemma-3-27b is the only vision model
+  there** — Qwen2.5-VL, InternVL, MiniCPM-V are NOT in it and must be downloaded.)
 
 **NOT yet done — resume here:**
 1. **No real engine has been run yet** (the box had other models loaded; we deliberately
