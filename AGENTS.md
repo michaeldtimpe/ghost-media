@@ -18,6 +18,8 @@ Generates algorithmic music videos for DJ sets. Source video clips are analyzed 
 
 5. **`extract_lyrics.py`** — Demucs vocal separation + Whisper transcription. Produces `.lyrics.json` with timestamped lyric segments and keyword indices mapped to phrases.
 
+6. **`bench/` + `bench/TESTPLAN.md`** — the vision-engine bake-off harness (CLI `bench_run.py`). Scores VLMs (Ollama / MLX / Claude) on the footage to pick the production enrichment engine; the winner feeds `enrich_analyses.py --sampling-plan`. Read `bench/TESTPLAN.md` first — it has the lineup, metrics, and a **status/resume** section for the in-progress benchmarking.
+
 ## Common Tasks
 
 ### Adding a new DJ set
@@ -72,6 +74,24 @@ from the existing enriched timelines — no video re-decoding, no archive drive 
 `--reenrich-flagged` re-runs only flagged scenes (failed validation/parse, or `quality_score <
 --quality-threshold`) — run it on `claude-cli` to clean up the cheap local model's hard cases at
 no marginal cost.
+
+### Running the vision-engine bake-off
+
+The `bench/` harness compares VLM engines on a representative footage subset to pick the
+production enrichment engine. It fixes the prior 2.6%-coverage / generic-tag problem with an
+**adaptive sampler** (one description per *distinct visual state*, not 1 frame/30s) and folds
+text detection into the vision pass (`has_english_text`). Full plan + status: `bench/TESTPLAN.md`.
+
+1. `python3 bench_run.py health` — backend availability (mlx reports "not installed" until `pip install mlx-vlm`).
+2. `python3 bench_run.py plan` — build `enriched/<stem>.sampling_plan.json` + print the coverage histogram.
+3. `python3 bench_run.py run --engines ollama-qwen7b,mlx-gemma3,baseline,clip-ceiling [--judge]` — run; resumable/pausable.
+4. `python3 bench_run.py compare [--video SUBSTR]` — CLIP-anchored scoreboard / side-by-side description dump.
+5. Pilot rescan with the winner: `python3 enrich_analyses.py --backend <winner> --sampling-plan --video <clip>`.
+
+Engines are defined in `bench/config.py` (`ENGINES` / `DEFAULT_ENGINES`). Composite rank is
+**objective metrics only** (within-video Recall@1 + coverage + text-F1 + adjacent discriminability);
+the LLM-judge is audit-only. Models load from the local archive `/Volumes/home/hub` or HF/Ollama;
+prefer the archive before downloading. `claude-cli` needs `env -u ANTHROPIC_API_KEY` (subscription).
 
 ### Searching scenes by description
 

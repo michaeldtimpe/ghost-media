@@ -25,6 +25,7 @@ and surface it as an error so retry / --reenrich-flagged logic can react.
 import base64
 import json
 import os
+import platform
 import shutil
 import subprocess
 import time
@@ -267,18 +268,92 @@ class AnthropicAPIBackend(VisionBackend):
             return None, time.time() - start, str(e)[:200]
 
 
+# ─── MLX (local Apple-Silicon, via mlx-vlm) ──────────────────────────────────
+
+class MLXVisionBackend(VisionBackend):
+    """Local vision on Apple Silicon via mlx-vlm. Loads the model **in-process
+    once** and caches it (`self._loaded`) — the `python -m mlx_vlm.generate` CLI
+    reloads multi-GB weights on every call, which is catastrophic across thousands
+    of frames. Free + offline; the bulk workhorse once the faster M5 Max is back.
+
+    Degrades gracefully: if mlx-vlm isn't installed (the current dev-box state) the
+    health check says so and the bench skips this engine without aborting the run.
+
+    NOTE: mlx-vlm's `generate`/`apply_chat_template` signatures have drifted across
+    releases; the calls are isolated here and the temperature kwarg is probed so a
+    version bump needs at most a one-line tweak. Targets mlx-vlm >= 0.1.
+    """
+    name = "mlx"
+    supports_batch = False
+    max_resolution = 1024  # px on the long edge; 4-bit VLMs are memory-sensitive
+
+    def __init__(self, model="mlx-community/Qwen2.5-VL-7B-Instruct-4bit"):
+        super().__init__(model)
+        self._loaded = None  # (model, processor) cached after first load
+
+    def health_check(self):
+        try:
+            import mlx_vlm  # noqa: F401
+            import mlx.core  # noqa: F401
+        except ImportError:
+            return False, "mlx-vlm not installed (pip install mlx-vlm)"
+        if platform.machine() != "arm64":
+            return False, "mlx requires Apple Silicon (arm64)"
+        return True, f"ready (model {self.model}; loads on first frame)"
+
+    def _ensure_loaded(self):
+        if self._loaded is None:
+            from mlx_vlm import load
+            self._loaded = load(self.model)  # (model, processor)
+        return self._loaded
+
+    def _generate(self, model, processor, formatted, image_path):
+        from mlx_vlm import generate
+        base = dict(max_tokens=1024, verbose=False)
+        # temperature kwarg name changed across versions (temp/temperature/none).
+        for temp_kw in ("temperature", "temp", None):
+            kw = dict(base)
+            if temp_kw:
+                kw[temp_kw] = 0.0
+            try:
+                return generate(model, processor, formatted, [str(image_path)], **kw)
+            except TypeError:
+                continue
+        return generate(model, processor, formatted, [str(image_path)], **base)
+
+    def analyze_frame(self, image_path, prompt):
+        start = time.time()
+        try:
+            from mlx_vlm.prompt_utils import apply_chat_template
+            model, processor = self._ensure_loaded()
+            cfg = getattr(model, "config", None)
+            formatted = apply_chat_template(processor, cfg, prompt, num_images=1)
+            result = self._generate(model, processor, formatted, image_path)
+            # generate() returns a str (older) or a result object with .text (newer).
+            text = result if isinstance(result, str) else getattr(result, "text", str(result))
+            elapsed = time.time() - start
+            text = (text or "").strip()
+            if not text:
+                return None, elapsed, "empty response"
+            return text, elapsed, None  # local model: no refusal check needed
+        except Exception as e:
+            return None, time.time() - start, str(e)[:200]
+
+
 # ─── Factory ─────────────────────────────────────────────────────────────────
 
 _DEFAULT_MODELS = {
     "ollama": "qwen2.5vl:7b",
     "claude-cli": "sonnet",
     "anthropic-api": "claude-haiku-4-5",
+    "mlx": "mlx-community/Qwen2.5-VL-7B-Instruct-4bit",
 }
 
 _BACKENDS = {
     "ollama": OllamaBackend,
     "claude-cli": ClaudeCLIBackend,
     "anthropic-api": AnthropicAPIBackend,
+    "mlx": MLXVisionBackend,
 }
 
 

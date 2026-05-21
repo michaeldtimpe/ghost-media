@@ -3,18 +3,20 @@
 Guidance for Claude Code (and other agents) working in this repo.
 
 ## What this is
-`ghost-media` is an algorithmic music-video generator. Two layers:
+`ghost-media` is an algorithmic music-video generator. Three layers:
 - **Toolkit** — the installable `media_analyzer/` package (CLI: `media-analyzer`); turns audio/video into JSON.
 - **Pipeline** — the root `*.py` scripts that consume that JSON and render videos; `assemble_v2.py` is the heart of it.
+- **Bench** — the `bench/` package (CLI: `bench_run.py`): a vision-engine bake-off harness that scores VLMs (Ollama / MLX / Claude) on the footage to pick the production enrichment engine. The winner feeds `enrich_analyses.py --sampling-plan`. See **[bench/TESTPLAN.md](bench/TESTPLAN.md)**.
 
 ## Start here
 1. **[AGENTS.md](AGENTS.md)** — contributor guide: key files, common tasks, gotchas.
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** — data flow, JSON schemas, scoring + diversity params.
 3. **[README.md](README.md)** — overview, quickstart, repo layout.
 4. **[lessons.md](lessons.md)** — engineering lessons + gotchas (e.g. silently-dead joins, billing-mode footguns).
+5. **[bench/TESTPLAN.md](bench/TESTPLAN.md)** — vision-engine bake-off plan, current status, and how to resume the in-progress benchmarking work.
 
 ## Working conventions
-- **Generated data is gitignored** (`*.analysis.json`, `enriched/`, `text_flags/`, `sets/`, `demucs_output/`, media). Never commit it. Code, docs, and `examples/` only.
+- **Generated data is gitignored** (`*.analysis.json`, `enriched/`, `text_flags/`, `sets/`, `demucs_output/`, `bench/results/`, `raw_footage/`, media). Never commit it. Code, docs, and `examples/` only.
 - The pipeline scripts run from the repo root and read/write data **relative to the root** (`./enriched/`, `./*.analysis.json`, `./sets/`). The toolkit batch drivers default their output to `~/Downloads/ghost-media`.
 - Source footage and DJ-set audio live on an external archive drive (`/Volumes/archive/...`) — it must be mounted for analysis/assembly. Paths are documented in `ARCHITECTURE.md` / `AGENTS.md`.
 - All analysis timelines are sampled at 8 Hz; scenes (not frames) are the atomic unit for clip selection.

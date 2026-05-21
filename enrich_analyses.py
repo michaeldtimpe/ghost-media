@@ -663,6 +663,143 @@ def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
     print(f"  {'═' * 68}\n")
 
 
+# ─── Sampling-plan mode (pilot rescan) ──────────────────────────────────────
+
+def run_sampling_plan(source_dir, video_filter=None, dry_run=False):
+    """Re-enrich from bench sampling plans: one vision call per DISTINCT VISUAL
+    STATE, with a `semantic` attached to EVERY represented scene (no inheritance),
+    plus folded-in text detection. Writes a fresh .enriched.json and a derived
+    .text_flags.json so the assembler omits text with no separate scan.
+
+    Consumes enriched/<stem>.sampling_plan.json produced by bench/sampler.py. If the
+    plan's representative frame already exists on disk (extracted by the bench), it
+    is reused; otherwise it is extracted fresh.
+    """
+    source = Path(source_dir)
+    plans = sorted(ENRICHMENT_DIR.glob("*.sampling_plan.json"))
+    if video_filter:
+        plans = [p for p in plans if video_filter.lower() in p.name.lower()]
+    if not plans:
+        print("\n  No sampling plans found (run `bench_run.py plan` first).")
+        return
+
+    if not dry_run:
+        ok, msg = BACKEND.health_check()
+        print(f"\n  Backend {BACKEND.label}: {'✓ ' + msg if ok else '✗ ' + msg}")
+        if not ok:
+            sys.exit(1)
+
+    print(f"\n  {'═' * 68}")
+    print(f"  SAMPLING-PLAN RESCAN  ·  backend {BACKEND.label}")
+    print(f"  {len(plans)} plan(s)")
+    print(f"  {'═' * 68}")
+    FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+
+    for plan_path in plans:
+        plan = json.loads(plan_path.read_text())
+        stem = plan.get("display_stem", plan_path.name.replace(".sampling_plan.json", ""))
+        n_states = plan.get("totals", {}).get("distinct_states", 0)
+        print(f"\n  {stem[:55]} — {n_states} states")
+        if dry_run:
+            continue
+
+        # Base structure: prefer the existing enriched file (has timelines), else analysis.
+        ef = ENRICHMENT_DIR / f"{stem}.enriched.json"
+        base_path = ef if ef.exists() else (ANALYSIS_DIR / f"{stem}.analysis.json")
+        if not base_path.exists():
+            print(f"      ✗ no base analysis/enriched file, skipping")
+            continue
+        data = json.loads(base_path.read_text())
+
+        video_path = plan.get("source_path")
+        if not video_path or not Path(video_path).exists():
+            video_path = find_source_video(data, base_path, source)
+        if not video_path:
+            print(f"      ✗ source video not found, skipping")
+            continue
+
+        scene_data = data.get("scenes", {})
+        scene_list = scene_data.get("scenes", []) if isinstance(scene_data, dict) else scene_data
+        scenes_by_idx = {s.get("scene_index"): s for s in scene_list}
+
+        frame_dir = FRAMES_DIR / hashlib.md5(stem.encode()).hexdigest()[:12]
+        frame_dir.mkdir(parents=True, exist_ok=True)
+
+        frame_analyses = []
+        text_flag_seconds = {}     # int second -> description, for scenes with text
+        described = errors = 0
+
+        for sc in plan.get("scenes", []):
+            si = sc.get("scene_index")
+            scene_has_text = False
+            text_desc = ""
+            for rep in sc.get("representatives", []):
+                t = rep.get("time_sec", 0.0)
+                # reuse the bench-extracted frame if present, else extract fresh
+                fp = ANALYSIS_DIR / rep.get("frame_path", "") if rep.get("frame_path") else None
+                if not (fp and fp.exists()):
+                    fp = frame_dir / f"s{si}_c{rep.get('cluster_id',0)}_{t:.2f}.jpg"
+                    if not extract_frame(video_path, t, fp):
+                        errors += 1
+                        continue
+                parsed, raw, elapsed, error = query_vision(str(fp))
+                if error or not parsed:
+                    errors += 1
+                    continue
+                clean, _ = normalize_analysis(parsed)
+                described += 1
+                frame_analyses.append({
+                    "time_sec": t, "scene_index": si,
+                    "cluster_id": rep.get("cluster_id"),
+                    "analysis": clean,
+                    "_provenance": {**BACKEND.provenance(), "elapsed": round(elapsed, 1)},
+                    "inference_time_sec": round(elapsed, 2),
+                })
+                # primary semantic for the scene = first described state
+                if si in scenes_by_idx and "semantic" not in scenes_by_idx[si]:
+                    scenes_by_idx[si]["semantic"] = clean
+                if clean.get("has_english_text"):
+                    scene_has_text = True
+                    text_desc = clean.get("text_content", "") or text_desc
+            # fold text flag across the whole scene window (assembler omits whole scenes)
+            if scene_has_text and si in scenes_by_idx:
+                s = scenes_by_idx[si]
+                for sec in range(int(s.get("start_sec", 0)), int(s.get("end_sec", 0)) + 1):
+                    text_flag_seconds[sec] = text_desc
+
+        # write enriched
+        data["schema_version"] = "2.0.0"
+        data["frame_analyses"] = frame_analyses
+        data["enrichment"] = {
+            "backend": BACKEND.name, "model": BACKEND.model,
+            "timestamp": datetime.now().isoformat(),
+            "frame_count": described, "mode": "sampling_plan",
+            "plan_checksum_states": n_states,
+        }
+        ef.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+
+        # write derived text_flags so the assembler omits text with no separate scan
+        TEXT_FLAGS_DIR = ANALYSIS_DIR / "text_flags"
+        TEXT_FLAGS_DIR.mkdir(parents=True, exist_ok=True)
+        flags = {str(sec): {"time_sec": float(sec), "has_english_text": True,
+                            "description": desc, "sample_type": "vlm_enrich"}
+                 for sec, desc in sorted(text_flag_seconds.items())}
+        tf = {
+            "video": stem, "source": str(video_path),
+            "duration_sec": data.get("metadata", {}).get("duration_sec", 0),
+            "flags": flags, "status": "complete", "scan_method": "vlm_enrich",
+            "text_frame_count": len(flags),
+        }
+        (TEXT_FLAGS_DIR / f"{stem}.text_flags.json").write_text(
+            json.dumps(tf, indent=2, ensure_ascii=False))
+
+        print(f"      ✓ {described} states described, {errors} errors, "
+              f"{len(text_flag_seconds)} text-seconds flagged")
+        print(f"      → {ef.name} + text_flags/{stem}.text_flags.json")
+
+    print(f"\n  {'═' * 68}\n  SAMPLING-PLAN RESCAN COMPLETE\n  {'═' * 68}\n")
+
+
 # ─── Status ─────────────────────────────────────────────────────────────────
 
 def show_status():
@@ -707,13 +844,17 @@ def main():
     parser.add_argument("--video", default=None, help="Filter to matching videos (substring)")
     parser.add_argument("--reset", action="store_true", help="Clear enrichment data")
     parser.add_argument("--backend", default=None,
-                        choices=["ollama", "claude-cli", "anthropic-api"],
+                        choices=["ollama", "claude-cli", "anthropic-api", "mlx"],
                         help="Vision backend (default: $GHOST_VISION_BACKEND or ollama)")
     parser.add_argument("--model", default=None, help="Override the backend's default model")
     parser.add_argument("--limit", type=int, default=None,
                         help="Process at most N videos (handy for testing)")
     parser.add_argument("--reenrich-flagged", action="store_true",
                         help="Re-run only flagged scenes (failed validation/parse or low quality)")
+    parser.add_argument("--sampling-plan", action="store_true",
+                        help="Rescan from bench sampling plans (one call per distinct visual "
+                             "state; attaches semantics to every represented scene + folds in "
+                             "text detection). Pilot rescan path.")
     parser.add_argument("--quality-threshold", type=float, default=0.5,
                         help="quality_score below this flags a scene for re-enrichment")
 
@@ -738,6 +879,10 @@ def main():
         return
 
     BACKEND = get_backend(args.backend, args.model)
+
+    if args.sampling_plan:
+        run_sampling_plan(args.source, args.video, args.dry_run)
+        return
 
     if args.reenrich_flagged:
         run_reenrich_flagged(args.source, args.quality_threshold, args.video, args.dry_run)
