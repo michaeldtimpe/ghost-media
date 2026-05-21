@@ -16,9 +16,8 @@ import time
 import argparse
 from pathlib import Path
 
-import numpy as np
-import torch
-from PIL import Image
+from clip_utils import (CLIP_MODEL, CLIP_PRETRAINED, BATCH_SIZE,
+                        load_clip as _load_clip, encode_images, encode_text)
 
 # ─── Configuration ─────────────────────────────────────────────────────────
 
@@ -26,10 +25,6 @@ BASE_DIR = Path(__file__).parent
 ENRICHED_DIR = BASE_DIR / "enriched"
 SOURCE_DIR = Path("/Volumes/archive/3000/3100/visuals/raw visuals footage")
 TMP_DIR = Path("/tmp/clip_embed_frames")
-
-CLIP_MODEL = "ViT-B-32"
-CLIP_PRETRAINED = "openai"
-BATCH_SIZE = 32
 
 
 # ─── Source Resolution ────────────────────────────────────────────────────
@@ -85,70 +80,7 @@ def extract_scene_frames(video_path, scenes, tmp_dir):
 
 
 # ─── CLIP Inference ──────────────────────────────────────────────────────
-
-_clip_model = None
-_clip_preprocess = None
-_clip_tokenizer = None
-_device = None
-
-
-def _load_clip():
-    """Load CLIP model (cached singleton)."""
-    global _clip_model, _clip_preprocess, _clip_tokenizer, _device
-    if _clip_model is not None:
-        return
-
-    import open_clip
-
-    if torch.backends.mps.is_available():
-        _device = torch.device("mps")
-    elif torch.cuda.is_available():
-        _device = torch.device("cuda")
-    else:
-        _device = torch.device("cpu")
-
-    _clip_model, _, _clip_preprocess = open_clip.create_model_and_transforms(
-        CLIP_MODEL, pretrained=CLIP_PRETRAINED, device=_device
-    )
-    _clip_tokenizer = open_clip.get_tokenizer(CLIP_MODEL)
-    _clip_model.eval()
-    print(f"  CLIP model: {CLIP_MODEL}/{CLIP_PRETRAINED} on {_device}")
-
-
-def encode_images(frame_paths, batch_size=BATCH_SIZE):
-    """Encode images with CLIP. Returns list of 512-dim numpy arrays."""
-    _load_clip()
-    embeddings = []
-
-    for i in range(0, len(frame_paths), batch_size):
-        batch_paths = frame_paths[i:i + batch_size]
-        images = []
-        for p in batch_paths:
-            try:
-                img = Image.open(p).convert("RGB")
-                images.append(_clip_preprocess(img))
-            except Exception:
-                # Placeholder zero vector for failed images
-                images.append(torch.zeros(3, 224, 224))
-
-        batch = torch.stack(images).to(_device)
-        with torch.no_grad():
-            features = _clip_model.encode_image(batch)
-            features = features / features.norm(dim=-1, keepdim=True)
-
-        embeddings.extend(features.cpu().numpy().tolist())
-
-    return embeddings
-
-
-def encode_text(text):
-    """Encode text with CLIP. Returns 512-dim numpy array."""
-    _load_clip()
-    tokens = _clip_tokenizer([text]).to(_device)
-    with torch.no_grad():
-        features = _clip_model.encode_text(tokens)
-        features = features / features.norm(dim=-1, keepdim=True)
-    return features.cpu().numpy()[0].tolist()
+# Model loading + image/text encoders live in clip_utils (shared with query_scenes.py).
 
 
 # ─── Processing ──────────────────────────────────────────────────────────

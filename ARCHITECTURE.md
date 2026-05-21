@@ -33,7 +33,8 @@ The system has four independent analysis pipelines that feed into a single assem
 ┌────────▼──────────▼───────────▼──────┐
 │          SCENE DATABASE              │
 │  Merges: scenes + motion + color +   │
-│  brightness + semantics - text       │
+│  brightness + semantics - text +     │
+│  CLIP emb + quality + loop flags     │
 │  ~19,000 usable scenes              │
 └────────────────┬─────────────────────┘
                  │
@@ -115,6 +116,45 @@ Extends analysis with vision model semantics. Same structure as above, plus:
 ```
 
 Sampling: 1 frame per 30 seconds, 4-30 frames per video. Semantic data is propagated to nearby scenes during database building.
+
+The enrichment schema is enforced by `vision_schema.normalize_analysis`: enum fields (`visual_style`, `mood.energy`, `color_palette.temperature`, `color_palette.color_relationship`, `composition.implied_motion`) are snapped onto their allowed vocabularies (or `"unclear"`), and list fields are coerced to flat string lists. Any corrections are recorded under a reserved `_validation` key (`{field: {raw, normalized}}`). The backend + model that produced a frame are stamped under `_provenance`. **Both `_validation` and `_provenance` are metadata — downstream consumers (the assembler) read only named fields and ignore them.** Enrichment runs through a pluggable backend (`vision_backends.py`): `ollama` (local, default), `claude-cli` (Claude on the user's subscription — zero marginal cost), or `anthropic-api` (opt-in, metered).
+
+### CLIP Embeddings (`.clip_embeddings.json`)
+
+One sidecar per source video (in `enriched/`), produced by `generate_clip_embeddings.py` (CLIP `ViT-B-32/openai`, shared loader in `clip_utils.py`). Holds a 512-dim L2-normalized vector per scene (encoded from the scene's midpoint frame):
+
+```
+{
+  "model": "ViT-B-32/openai",
+  "embedding_dim": 512,
+  "scenes": [ { "scene_index", "frame_time_sec", "embedding": [512 floats] } ]
+}
+```
+
+Consumed by the assembler (scoring dim 11: lyric-text ↔ visual similarity) and by `query_scenes.py` for natural-language search.
+
+### Scene Quality (`.quality.json`)
+
+One sidecar per source video (in `enriched/`), produced by `flag_quality.py` from the existing brightness/motion timelines (no video re-decoding) plus the CLIP embeddings for within-source near-duplicate detection:
+
+```
+{
+  "model_version": "1.0",
+  "thresholds": { ... },
+  "scenes": [
+    {
+      "scene_index": 12,
+      "quality_score": 0.1,      // combined, used by the assembler
+      "technical_score": 0.1,    // black / blown_out / frozen
+      "editorial_score": 1.0,    // low_info / near_dup
+      "flags": ["black"],
+      "metrics": { "brightness_p95": 0.02, "motion_max": 0.005, ... }
+    }
+  ]
+}
+```
+
+Flags: `black` (brightness p95 < 0.05), `blown_out` (brightness p5 > 0.95), `frozen` (peak motion < 0.05), `low_info` (mean contrast < 0.04), `near_dup` (CLIP cosine ≥ 0.985 vs an earlier kept scene in the same source). The assembler turns `quality_score` into a soft, non-destructive penalty (scoring dim 12).
 
 ### Text Flags (`.text_flags.json`)
 
@@ -240,19 +280,22 @@ This produces longer clip holds for breakdowns and ambient passages, while keepi
 
 ### Scoring (per scene vs. per phrase)
 
-Each scene is scored against each phrase on 8 dimensions:
+Each scene is scored against each phrase. The first six are weighted match terms; the rest are additive bonuses/penalties (see `score_scene` in `assemble_v2.py`):
 
-| Dimension | Weight | Logic |
-|-----------|--------|-------|
-| Motion-energy | 1.0 | Visual motion ↔ audio energy |
-| Brightness | 0.8 | Visual brightness ↔ spectral centroid |
-| Color temperature | 0.7 | Warm colors ↔ bass-heavy audio |
-| Duration fit | 0.9 | Scene length ↔ target (3-15s based on energy) |
-| Saturation | 0.5 | Color saturation ↔ energy level |
-| Contrast | 0.5 | Visual contrast ↔ percussive ratio |
-| Semantic | 0.1-0.4 | Mood energy match (calm↔calm, intense↔intense) |
-| Style hints | variable | Per-set creative direction bonus/penalty |
-| Lyrics match | 0.25/match | Lyric keywords matched against clip content_tags (cap 0.8) |
+| # | Dimension | Weight | Logic |
+|---|-----------|--------|-------|
+| 1 | Motion-energy | 1.0 | Visual motion ↔ audio energy |
+| 2 | Brightness | 0.8 | Visual brightness ↔ spectral centroid |
+| 3 | Color temperature | 0.7 | Warm colors ↔ bass-heavy audio |
+| 4 | Duration fit | 0.9 | Scene length ↔ target (3-15s based on energy) |
+| 5 | Saturation | 0.5 | Color saturation ↔ energy level |
+| 6 | Contrast | 0.5 | Visual contrast ↔ percussive ratio |
+| 7 | Semantic | 0.1-0.4 | Mood energy match (calm↔calm, intense↔intense) |
+| 8 | Style hints | variable | Per-set creative direction bonus/penalty |
+| 9 | Lyrics match | 0.25/match | Lyric keywords matched against clip content_tags (cap 0.8) |
+| 10 | Loopability | +0.15 | Prefer loopable clips for phrases longer than the scene |
+| 11 | CLIP similarity | ×0.6 | Lyric-text embedding ↔ scene visual embedding (cosine) |
+| 12 | Scene quality | ×3.0 | **Non-destructive** soft penalty `-(1-quality_score)*3` — a dead scene (black/blown/frozen) sinks ~3 pts but is never excluded outright |
 
 ### Diversity Enforcement
 
@@ -283,6 +326,9 @@ Each scene is scored against each phrase on 8 dimensions:
 | scipy | 1.10+ | Signal processing |
 | demucs | 4.0+ | Vocal separation from DJ set audio |
 | openai-whisper | latest | Speech-to-text transcription of isolated vocals |
+| open_clip + torch | latest | CLIP embeddings (generation, assembler dim 11, scene query) |
+| Claude Code CLI | 2.1+ | `claude-cli` vision backend (uses your subscription) |
+| anthropic | latest | `anthropic-api` vision backend (optional, metered) |
 
 ## Directory Layout
 
@@ -292,7 +338,9 @@ ghost-media/                 # (the generated data dirs/files below are gitignor
 ├── pyproject.toml  setup.sh  examples/
 ├── *.analysis.json          # 73 raw video analyses
 ├── enriched/
-│   └── *.enriched.json      # 53 vision-enriched analyses
+│   ├── *.enriched.json          # 53 vision-enriched analyses
+│   ├── *.clip_embeddings.json   # per-scene CLIP vectors (semantic search/matching)
+│   └── *.quality.json           # per-scene quality scores + cull flags
 ├── text_flags/
 │   └── *.text_flags.json    # 18 text-scanned (more pending)
 ├── sets/
@@ -304,7 +352,15 @@ ghost-media/                 # (the generated data dirs/files below are gitignor
 ├── demucs_output/           # Demucs separated stems (vocals.wav etc)
 ├── assemble_v2.py           # Main assembler (current)
 ├── analyze_dj_set_deep.py   # Deep audio analysis
-├── enrich_analyses.py       # Vision model enrichment
+├── enrich_analyses.py       # Vision enrichment (pluggable backend)
+├── vision_schema.py         # Shared enrichment prompt + enum normalizer
+├── vision_backends.py       # Vision backends: ollama / claude-cli / anthropic-api
+├── generate_clip_embeddings.py # CLIP per-scene embedding generator
+├── clip_utils.py            # Shared CLIP loader + image/text encoders
+├── flag_quality.py          # Per-scene quality / cull pass → .quality.json
+├── detect_loops.py          # Loop detection (SSIM first/last frame) → enriched
+├── query_scenes.py          # Natural-language scene search over CLIP embeddings
+├── smoke_test.py            # Fast feature-interaction checks
 ├── scan_text_fast.py        # Adaptive text scanner
 ├── scan_text.py             # Original 1fps text scanner
 ├── render_sizzle.py         # Audio-reactive visualizer

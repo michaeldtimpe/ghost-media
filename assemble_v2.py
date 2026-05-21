@@ -112,6 +112,7 @@ CROSSFADE_FRAMES = 8       # frames of crossfade between clips
 TOP_CANDIDATES = 20        # random pool size for weighted selection
 REUSE_PENALTY = 0.5        # steeper logarithmic penalty per reuse
 MAX_SOURCE_USAGE_MULT = 2.0  # cap any source at (total_phrases / n_sources) * this
+QUALITY_PENALTY_WEIGHT = 3.0  # soft penalty for dead scenes: -(1-quality)*this (see flag_quality.py)
 
 # ─── Adaptive Phrase Merging ──────────────────────────────────────────────
 # Controls how 4-bar phrases get merged for sustained/low-energy sections
@@ -149,6 +150,12 @@ class SceneClip:
     loop_similarity: float = 0.0
     # CLIP embedding
     clip_embedding: np.ndarray = None
+    # Quality pass (flag_quality.py) — 1.0 = clean, lower = dead/duplicate
+    quality_score: float = 1.0
+    cull_flags: list = field(default_factory=list)
+    # Enriched-file stem (sanitized) — the reliable key for CLIP/quality sidecars,
+    # since source_name keeps the original (unsanitized) filename.
+    enriched_stem: str = ""
 
 
 def compute_color_temperature(colors):
@@ -259,6 +266,7 @@ def build_scene_database(text_seconds=None):
         file_info = data.get("file", {})
         source_path = find_source_video(file_info)
         source_name = file_info.get("name", f.stem)
+        src_stem = f.name.replace(".enriched.json", "")  # sanitized; matches sidecar filenames
 
         # Get timelines
         motion_tl = data.get("motion", {}).get("timeline", [])
@@ -340,6 +348,7 @@ def build_scene_database(text_seconds=None):
                 has_semantic=has_semantic,
                 loopable=s.get("loopable", False),
                 loop_similarity=s.get("loop_similarity", 0.0),
+                enriched_stem=src_stem,
             )
             scenes.append(clip)
 
@@ -355,11 +364,29 @@ def build_scene_database(text_seconds=None):
     if clip_embeddings:
         matched = 0
         for clip in scenes:
-            key = (clip.source_name.replace(".enriched.json", ""), clip.scene_index)
+            key = (clip.enriched_stem, clip.scene_index)
             if key in clip_embeddings:
                 clip.clip_embedding = clip_embeddings[key]
                 matched += 1
         print(f"    CLIP embeddings: {matched}/{len(scenes)} scenes")
+
+    # Load quality scores from sidecar files (flag_quality.py)
+    quality = {}  # (source_name, scene_index) → (score, flags)
+    for q_file in ENRICHED_DIR.glob("*.quality.json"):
+        q_data = json.loads(q_file.read_text())
+        src_name = q_file.name.replace(".quality.json", "")
+        for qs in q_data.get("scenes", []):
+            quality[(src_name, qs["scene_index"])] = (
+                qs.get("quality_score", 1.0), qs.get("flags", []))
+    if quality:
+        flagged = 0
+        for clip in scenes:
+            key = (clip.enriched_stem, clip.scene_index)
+            if key in quality:
+                clip.quality_score, clip.cull_flags = quality[key]
+                if clip.cull_flags:
+                    flagged += 1
+        print(f"    Quality scores: {len(scenes) - flagged}/{len(scenes)} clean, {flagged} flagged")
 
     return scenes
 
@@ -548,6 +575,10 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
         sim = float(np.dot(phrase.clip_text_embedding, clip.clip_embedding))
         clip_sim_bonus = max(0, sim) * 0.6
 
+    # 12. Scene quality — soft, non-destructive penalty (flag_quality.py).
+    #     A dead scene (black/blown/frozen) sinks ~3 pts but stays selectable.
+    quality_penalty = -(1.0 - clip.quality_score) * QUALITY_PENALTY_WEIGHT
+
     # Weighted combination
     score = (
         motion_match * 1.0 +
@@ -560,7 +591,8 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
         style_bonus +
         lyrics_bonus +
         loop_bonus +
-        clip_sim_bonus
+        clip_sim_bonus +
+        quality_penalty
     )
 
     return score
@@ -721,6 +753,8 @@ def select_clips(scenes, phrase_features, style_hints=None):
             "track_title": phrase.track_title,
             "loop_count": loop_count,
             "scene_duration": best_clip.duration_sec if needs_loop else 0,
+            "clip_quality": round(best_clip.quality_score, 2),
+            "clip_cull_flags": best_clip.cull_flags,
         })
 
         # Update source tracking
@@ -1042,7 +1076,7 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
         print(f"    No lyrics file found (run extract_lyrics.py --set {set_name} to add)")
 
     # ── 3c. Encode lyrics with CLIP for semantic matching ──
-    any_has_clip_emb = any(c.clip_embedding is not None for c in scene_pool)
+    any_has_clip_emb = any(c.clip_embedding is not None for c in scenes)  # was: scene_pool (undefined in this scope)
     phrases_with_lyrics = [pf for pf in phrase_features if pf.lyrics_keywords]
     if any_has_clip_emb and phrases_with_lyrics:
         try:
@@ -1077,6 +1111,17 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
     t0 = time.time()
     selections = select_clips(scenes, phrase_features, style_hints)
     print(f"done ({time.time()-t0:.1f}s)")
+
+    # Quality of the selection — observability for tuning QUALITY_PENALTY_WEIGHT.
+    flagged_sel = [s for s in selections if s.get("clip_cull_flags")]
+    if any(s.get("clip_quality", 1.0) < 1.0 for s in selections):
+        mean_q = np.mean([s.get("clip_quality", 1.0) for s in selections])
+        print(f"    Selection quality: mean {mean_q:.2f}, {len(flagged_sel)} flagged clips kept")
+        for s in flagged_sel[:10]:
+            q = s.get("clip_quality", 1.0)
+            pen = -(1.0 - q) * QUALITY_PENALTY_WEIGHT
+            print(f"      phrase {s['phrase_index']}: quality={q:.2f} penalty={pen:+.2f} "
+                  f"flags={s['clip_cull_flags']}")
 
     source_counts = {}
     for s in selections:

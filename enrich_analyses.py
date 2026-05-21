@@ -28,19 +28,22 @@ import json
 import os
 import sys
 import time
-import base64
 import argparse
 import subprocess
 import hashlib
-import urllib.request
-import urllib.error
 from pathlib import Path
 from datetime import datetime, timedelta
+
+from vision_schema import SCENE_PROMPT, normalize_analysis
+from vision_backends import get_backend
 
 # ─── Configuration ──────────────────────────────────────────────────────────
 
 MODEL = "qwen2.5vl:7b"
 OLLAMA_API = "http://localhost:11434"
+
+# Set in main() from --backend/--model (or $GHOST_VISION_BACKEND); defaults to ollama.
+BACKEND = None
 
 DEFAULT_SOURCE = "/Volumes/archive/3000/3100/visuals/raw visuals footage"
 ANALYSIS_DIR = Path(__file__).parent
@@ -53,30 +56,7 @@ SAMPLE_INTERVAL_SEC = 30
 MIN_FRAMES_PER_VIDEO = 4
 MAX_FRAMES_PER_VIDEO = 30
 
-SCENE_PROMPT = """Analyze this video frame for use in an LLM-driven visual generation system. Provide a structured JSON response with these fields:
-
-{
-  "visual_description": "Concrete description of what you see — objects, shapes, patterns, textures, people, environments. Be specific.",
-  "color_palette": {
-    "dominant_colors": ["list of 3-5 color names"],
-    "color_relationship": "complementary | analogous | monochromatic | triadic | split-complementary",
-    "temperature": "warm | cool | neutral | mixed"
-  },
-  "composition": {
-    "layout": "description of spatial arrangement, depth, focal points",
-    "implied_motion": "none | pan_left | pan_right | zoom_in | zoom_out | rotation_cw | rotation_ccw | drift | pulse | spiral | complex",
-    "motion_description": "brief description of perceived movement or camera motion"
-  },
-  "visual_style": "photorealistic | abstract | geometric | organic | psychedelic | minimalist | glitch | cinematic | motion_graphics | particle | fractal | liquid | mixed",
-  "mood": {
-    "tone": "description of emotional quality",
-    "energy": "calm | building | moderate | intense | chaotic"
-  },
-  "transition_anchors": ["list of visual elements that could serve as transition points"],
-  "content_tags": ["list of descriptive tags for searchability"]
-}
-
-Return ONLY valid JSON, no markdown or explanation."""
+# SCENE_PROMPT is imported from vision_schema (single source of truth).
 
 
 # ─── Formatting ─────────────────────────────────────────────────────────────
@@ -238,49 +218,15 @@ def extract_frame(video_path, time_sec, output_path):
         return False
 
 
-# ─── Ollama ─────────────────────────────────────────────────────────────────
-
-def check_ollama():
-    try:
-        req = urllib.request.Request(f"{OLLAMA_API}/api/tags")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            names = {m["name"] for m in data.get("models", [])}
-            return MODEL in names or any(MODEL.split(":")[0] in n for n in names)
-    except Exception:
-        return False
-
+# ─── Vision (backend-agnostic) ──────────────────────────────────────────────
 
 def query_vision(image_path):
-    """Send image to qwen2.5vl:7b and return parsed JSON response."""
-    start = time.time()
-    try:
-        with open(image_path, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-        payload = json.dumps({
-            "model": MODEL,
-            "prompt": SCENE_PROMPT,
-            "images": [img_b64],
-            "stream": False,
-            "options": {"num_predict": 1024},
-        }).encode()
-
-        req = urllib.request.Request(
-            f"{OLLAMA_API}/api/generate", data=payload,
-            headers={"Content-Type": "application/json"}, method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = json.loads(resp.read())
-            elapsed = time.time() - start
-            raw = data.get("response", "").strip()
-
-            # Try to parse as JSON
-            parsed = try_parse_json(raw)
-            return parsed, raw, elapsed, None
-
-    except Exception as e:
-        return None, None, time.time() - start, str(e)[:200]
+    """Send a frame to the active backend and return (parsed, raw, elapsed, error)."""
+    raw, elapsed, error = BACKEND.analyze_frame(str(image_path), SCENE_PROMPT)
+    if error:
+        return None, raw, elapsed, error
+    parsed = try_parse_json(raw)
+    return parsed, raw, elapsed, None
 
 
 def try_parse_json(text):
@@ -320,7 +266,8 @@ def build_enriched_output(analysis_data, frame_results):
     enriched = dict(analysis_data)
     enriched["schema_version"] = "2.0.0"
     enriched["enrichment"] = {
-        "model": MODEL,
+        "backend": BACKEND.name if BACKEND else "ollama",
+        "model": BACKEND.model if BACKEND else MODEL,
         "timestamp": datetime.now().isoformat(),
         "frame_count": len(frame_results),
         "sample_interval_sec": SAMPLE_INTERVAL_SEC,
@@ -342,10 +289,11 @@ def build_enriched_output(analysis_data, frame_results):
         idx = scene.get("scene_index")
         if idx in results_by_scene:
             descs = results_by_scene[idx]
-            # Use the first parsed result for this scene
+            # Use the first parsed result for this scene (validated against the schema)
             for d in descs:
                 if d.get("parsed"):
-                    scene["semantic"] = d["parsed"]
+                    clean, _ = normalize_analysis(d["parsed"])
+                    scene["semantic"] = clean
                     break
             else:
                 # Fallback: store raw text
@@ -360,11 +308,14 @@ def build_enriched_output(analysis_data, frame_results):
             "scene_index": fr.get("scene_index"),
         }
         if fr.get("parsed"):
-            entry["analysis"] = fr["parsed"]
+            clean, _ = normalize_analysis(fr["parsed"])
+            entry["analysis"] = clean
         elif fr.get("raw"):
             entry["analysis_raw"] = fr["raw"]
         if fr.get("error"):
             entry["error"] = fr["error"]
+        if fr.get("provenance"):
+            entry["_provenance"] = fr["provenance"]
         entry["inference_time_sec"] = fr.get("elapsed", 0)
         enriched["frame_analyses"].append(entry)
 
@@ -373,7 +324,7 @@ def build_enriched_output(analysis_data, frame_results):
 
 # ─── Main Pipeline ──────────────────────────────────────────────────────────
 
-def run_pipeline(source_dir, video_filter=None, dry_run=False):
+def run_pipeline(source_dir, video_filter=None, dry_run=False, limit=None):
     source = Path(source_dir)
     if not source.exists():
         print(f"\n  ERROR: Source not found: {source}")
@@ -388,14 +339,14 @@ def run_pipeline(source_dir, video_filter=None, dry_run=False):
         print("  Pipeline is paused. Use --resume to continue.")
         return
 
-    # ── Ollama check ──
+    # ── Backend check ──
     if not dry_run:
-        print(f"\n  Checking {MODEL}...", end=" ")
-        if check_ollama():
-            print("✓ ready")
+        print(f"\n  Checking backend {BACKEND.label}...", end=" ")
+        ok, msg = BACKEND.health_check()
+        if ok:
+            print(f"✓ {msg}")
         else:
-            print("✗ not found")
-            print(f"  Run: ollama pull {MODEL}")
+            print(f"✗ {msg}")
             sys.exit(1)
 
     # ── Discover analysis files ──
@@ -426,6 +377,8 @@ def run_pipeline(source_dir, video_filter=None, dry_run=False):
         })
 
     remaining = [w for w in work_plan if not w["done"]]
+    if limit:
+        remaining = remaining[:limit]
     remaining_frames = sum(len(w["samples"]) for w in remaining)
 
     print(f"  Total frames to analyze: {total_frames}")
@@ -459,7 +412,7 @@ def run_pipeline(source_dir, video_filter=None, dry_run=False):
 
     print(f"\n  {'═' * 68}")
     print(f"  SEMANTIC ENRICHMENT PIPELINE")
-    print(f"  Model: {MODEL}")
+    print(f"  Backend: {BACKEND.label}")
     print(f"  {len(remaining)} videos, {remaining_frames} frames")
     print(f"  {'═' * 68}")
 
@@ -541,6 +494,7 @@ def run_pipeline(source_dir, video_filter=None, dry_run=False):
                 "scene_index": sample.get("scene_index"),
                 "parsed": parsed, "raw": raw,
                 "elapsed": elapsed, "error": error,
+                "provenance": {**BACKEND.provenance(), "elapsed": round(elapsed, 1)},
             })
 
             # Progress line
@@ -592,6 +546,123 @@ def run_pipeline(source_dir, video_filter=None, dry_run=False):
     save_state(state)
 
 
+# ─── Re-enrich flagged (hard-case re-rate) ──────────────────────────────────
+
+def _scene_is_flagged(scene, quality_by_index, quality_threshold):
+    """A scene is a re-enrichment candidate if its semantic failed validation/parse
+    OR its quality_score is below threshold (OR-combined, per plan)."""
+    semantic = scene.get("semantic")
+    # Parse failure: no semantic, or only raw text was stored.
+    if not semantic or scene.get("semantic_raw"):
+        return True, "no/raw semantic"
+    # Validation failure: an enum field had to be snapped to "unclear".
+    validation = semantic.get("_validation", {}) if isinstance(semantic, dict) else {}
+    if any(v.get("normalized") == "unclear" for v in validation.values()):
+        return True, "validation→unclear"
+    # Low quality.
+    q = quality_by_index.get(scene.get("scene_index"))
+    if q is not None and q < quality_threshold:
+        return True, f"quality {q:.2f}"
+    return False, ""
+
+
+def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
+                         dry_run=False):
+    """Re-run only flagged scenes through the active backend (ideally claude-cli on
+    the subscription) to fix up the cheap local model's hard cases."""
+    source = Path(source_dir)
+    if not source.exists():
+        print(f"\n  ERROR: Source not found: {source}\n  Mount the archive drive.\n")
+        sys.exit(1)
+
+    if not dry_run:
+        ok, msg = BACKEND.health_check()
+        print(f"\n  Backend {BACKEND.label}: {'✓ ' + msg if ok else '✗ ' + msg}")
+        if not ok:
+            sys.exit(1)
+
+    files = sorted(ENRICHMENT_DIR.glob("*.enriched.json"))
+    if video_filter:
+        files = [f for f in files if video_filter.lower() in f.name.lower()]
+
+    print(f"\n  {'═' * 68}")
+    print(f"  RE-ENRICH FLAGGED  (threshold q<{quality_threshold})")
+    print(f"  Backend: {BACKEND.label}  ·  {len(files)} enriched files")
+    print(f"  {'═' * 68}")
+
+    FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+    total_flagged = total_fixed = 0
+
+    for ef in files:
+        data = json.loads(ef.read_text())
+        scenes = data.get("scenes", {})
+        scene_list = scenes.get("scenes", []) if isinstance(scenes, dict) else scenes
+
+        # Quality sidecar (optional) → scene_index: quality_score
+        quality_by_index = {}
+        qf = ef.with_name(ef.name.replace(".enriched.json", ".quality.json"))
+        if qf.exists():
+            for s in json.loads(qf.read_text()).get("scenes", []):
+                quality_by_index[s.get("scene_index")] = s.get("quality_score", 1.0)
+
+        flagged = []
+        for scene in scene_list:
+            hit, reason = _scene_is_flagged(scene, quality_by_index, quality_threshold)
+            if hit:
+                flagged.append((scene, reason))
+        if not flagged:
+            continue
+        total_flagged += len(flagged)
+
+        name = ef.name.replace(".enriched.json", "")
+        print(f"\n  {name[:50]} — {len(flagged)} flagged")
+        if dry_run:
+            for scene, reason in flagged[:8]:
+                print(f"      scene {scene.get('scene_index')}: {reason}")
+            continue
+
+        video_path = find_source_video(data, ef, source)
+        if not video_path:
+            print(f"      ✗ source video not found, skipping")
+            continue
+
+        fa_by_scene = {fa.get("scene_index"): fa for fa in data.get("frame_analyses", [])}
+        frame_dir = FRAMES_DIR / hashlib.md5(ef.name.encode()).hexdigest()[:12]
+        frame_dir.mkdir(parents=True, exist_ok=True)
+
+        fixed = 0
+        for scene, reason in flagged:
+            si = scene.get("scene_index")
+            mid = (scene.get("start_sec", 0) + scene.get("end_sec", 0)) / 2
+            frame_path = frame_dir / f"reenrich_scene_{si}_{mid:.2f}s.jpg"
+            if not extract_frame(video_path, mid, frame_path):
+                print(f"      scene {si}: ✗ extract failed")
+                continue
+            parsed, raw, elapsed, error = query_vision(str(frame_path))
+            if error or not parsed:
+                print(f"      scene {si}: ~ {error or 'unparsed'} ({elapsed:.1f}s)")
+                continue
+            clean, _ = normalize_analysis(parsed)
+            scene["semantic"] = clean
+            scene.pop("semantic_raw", None)
+            if si in fa_by_scene:
+                fa_by_scene[si]["analysis"] = clean
+                fa_by_scene[si].pop("analysis_raw", None)
+                fa_by_scene[si]["_provenance"] = {**BACKEND.provenance(),
+                                                  "elapsed": round(elapsed, 1)}
+            fixed += 1
+            print(f"      scene {si}: ✓ re-enriched ({reason}, {elapsed:.1f}s)")
+
+        if fixed:
+            ef.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+            total_fixed += fixed
+            print(f"      → wrote {fixed} updates to {ef.name}")
+
+    print(f"\n  {'═' * 68}")
+    print(f"  RE-ENRICH COMPLETE — {total_fixed}/{total_flagged} flagged scenes updated")
+    print(f"  {'═' * 68}\n")
+
+
 # ─── Status ─────────────────────────────────────────────────────────────────
 
 def show_status():
@@ -626,6 +697,7 @@ def show_status():
 # ─── CLI ────────────────────────────────────────────────────────────────────
 
 def main():
+    global BACKEND
     parser = argparse.ArgumentParser(description="Semantic enrichment pipeline for media analysis")
     parser.add_argument("--source", default=DEFAULT_SOURCE, help="Source video directory")
     parser.add_argument("--status", action="store_true", help="Show progress")
@@ -634,6 +706,16 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Show plan without running")
     parser.add_argument("--video", default=None, help="Filter to matching videos (substring)")
     parser.add_argument("--reset", action="store_true", help="Clear enrichment data")
+    parser.add_argument("--backend", default=None,
+                        choices=["ollama", "claude-cli", "anthropic-api"],
+                        help="Vision backend (default: $GHOST_VISION_BACKEND or ollama)")
+    parser.add_argument("--model", default=None, help="Override the backend's default model")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Process at most N videos (handy for testing)")
+    parser.add_argument("--reenrich-flagged", action="store_true",
+                        help="Re-run only flagged scenes (failed validation/parse or low quality)")
+    parser.add_argument("--quality-threshold", type=float, default=0.5,
+                        help="quality_score below this flags a scene for re-enrichment")
 
     args = parser.parse_args()
 
@@ -655,16 +737,22 @@ def main():
         print("  Pause signal sent.")
         return
 
+    BACKEND = get_backend(args.backend, args.model)
+
+    if args.reenrich_flagged:
+        run_reenrich_flagged(args.source, args.quality_threshold, args.video, args.dry_run)
+        return
+
     if args.resume:
         state = load_state()
         state["paused"] = False
         state["status"] = "resuming"
         save_state(state)
         print("  Resuming...")
-        run_pipeline(args.source, args.video)
+        run_pipeline(args.source, args.video, limit=args.limit)
         return
 
-    run_pipeline(args.source, args.video, args.dry_run)
+    run_pipeline(args.source, args.video, args.dry_run, limit=args.limit)
 
 
 if __name__ == "__main__":

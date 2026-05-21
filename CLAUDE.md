@@ -11,6 +11,7 @@ Guidance for Claude Code (and other agents) working in this repo.
 1. **[AGENTS.md](AGENTS.md)** — contributor guide: key files, common tasks, gotchas.
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** — data flow, JSON schemas, scoring + diversity params.
 3. **[README.md](README.md)** — overview, quickstart, repo layout.
+4. **[lessons.md](lessons.md)** — engineering lessons + gotchas (e.g. silently-dead joins, billing-mode footguns).
 
 ## Working conventions
 - **Generated data is gitignored** (`*.analysis.json`, `enriched/`, `text_flags/`, `sets/`, `demucs_output/`, media). Never commit it. Code, docs, and `examples/` only.

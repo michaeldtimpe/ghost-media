@@ -37,6 +37,12 @@ Source footage library                DJ set audio
 4. scan_text_fast.py                          │
    (flag on-screen English text)              │
         │                                     │
+   4b. generate_clip_embeddings.py            │
+        (CLIP per-scene vectors)              │
+        │                                     │
+   4c. flag_quality.py                         │
+        (black/blown/frozen/dup → quality)    │
+        │                                     │
         └──────────────┬──────────────────────┘
                        ▼
               5. assemble_v2.py
@@ -47,9 +53,15 @@ Source footage library                DJ set audio
                 Music Video (.mp4)
 ```
 
+Two side tools sit on the same data: **`query_scenes.py`** searches the scene
+corpus in natural language over the CLIP embeddings, and **`enrich_analyses.py
+--backend claude-cli`** runs vision enrichment on your Claude subscription instead
+of the local model.
+
 See **[ARCHITECTURE.md](ARCHITECTURE.md)** for the full data flow, JSON schemas,
-scoring weights, and diversity parameters, and **[AGENTS.md](AGENTS.md)** for a
-contributor/agent guide.
+scoring weights, and diversity parameters, **[AGENTS.md](AGENTS.md)** for a
+contributor/agent guide, and **[lessons.md](lessons.md)** for engineering lessons
+and gotchas.
 
 ## Quick start
 
@@ -104,15 +116,21 @@ ghost-media/
 ├── analyze_visuals_library.py / analyze_footage.py / audit_output.py / reprocess_pass2.py
 │                           # batch drivers over the footage library
 ├── analyze_dj_set_deep.py  # deep DJ-set audio analysis (current)
-├── enrich_analyses.py      # qwen2.5vl vision enrichment
+├── enrich_analyses.py      # vision enrichment (pluggable backend)
+├── vision_schema.py        # shared enrichment prompt + enum normalizer
+├── vision_backends.py      # vision backends: ollama / claude-cli / anthropic-api
 ├── scan_text_fast.py / scan_text.py   # on-screen English-text detection
 ├── extract_lyrics.py       # Demucs + Whisper lyrics → keyword index
-├── generate_clip_embeddings.py / detect_loops.py / vision_model_contest.py
+├── generate_clip_embeddings.py / clip_utils.py   # CLIP per-scene embeddings
+├── flag_quality.py         # per-scene quality / cull pass → .quality.json
+├── query_scenes.py         # natural-language scene search over CLIP embeddings
+├── detect_loops.py / vision_model_contest.py
 ├── render_sizzle.py        # audio-reactive visualizer
 ├── assemble_v2.py          # MAIN assembler (clip matching + render)
 ├── assemble_music_video.py # v1 assembler (legacy)
+├── smoke_test.py           # fast feature-interaction checks
 │
-├── ARCHITECTURE.md  AGENTS.md
+├── ARCHITECTURE.md  AGENTS.md  lessons.md
 └── docs/
     ├── toolkit.md          # media-analyzer CLI + schema reference
     └── pipeline.md         # original pipeline README

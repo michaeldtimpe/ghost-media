@@ -15,34 +15,11 @@ import base64
 import urllib.request
 from pathlib import Path
 
+from vision_schema import SCENE_PROMPT, normalize_analysis
+
 ENRICHED_DIR = Path(__file__).parent / "enriched"
 OLLAMA_API = "http://localhost:11434"
 MODEL = "qwen2.5vl:7b"
-
-SCENE_PROMPT = """Analyze this video frame for use in an LLM-driven visual generation system. Provide a structured JSON response with these fields:
-
-{
-  "visual_description": "Concrete description of what you see — objects, shapes, patterns, textures, people, environments. Be specific.",
-  "color_palette": {
-    "dominant_colors": ["list of 3-5 color names"],
-    "color_relationship": "complementary | analogous | monochromatic | triadic | split-complementary",
-    "temperature": "warm | cool | neutral | mixed"
-  },
-  "composition": {
-    "layout": "description of spatial arrangement, depth, focal points",
-    "implied_motion": "none | pan_left | pan_right | zoom_in | zoom_out | rotation_cw | rotation_ccw | drift | pulse | spiral | complex",
-    "motion_description": "brief description of perceived movement or camera motion"
-  },
-  "visual_style": "photorealistic | abstract | geometric | organic | psychedelic | minimalist | glitch | cinematic | motion_graphics | particle | fractal | liquid | mixed",
-  "mood": {
-    "tone": "description of emotional quality",
-    "energy": "calm | building | moderate | intense | chaotic"
-  },
-  "transition_anchors": ["list of visual elements that could serve as transition points"],
-  "content_tags": ["list of descriptive tags for searchability"]
-}
-
-Return ONLY valid JSON, no markdown or explanation."""
 
 
 def fix_stutter(obj):
@@ -127,9 +104,10 @@ def main():
 
     if parsed:
         print(f"✓ parsed in {elapsed:.1f}s")
+        clean, _ = normalize_analysis(parsed)
         # Update frame_analyses[9]
         fa = data["frame_analyses"][9]
-        fa["analysis"] = parsed
+        fa["analysis"] = clean
         fa.pop("analysis_raw", None)
         fa["inference_time_sec"] = elapsed
 
@@ -138,7 +116,7 @@ def main():
         scene_list = scenes.get("scenes", []) if isinstance(scenes, dict) else scenes
         for scene in scene_list:
             if scene.get("scene_index") == 873:
-                scene["semantic"] = parsed
+                scene["semantic"] = clean
                 scene.pop("semantic_raw", None)
                 break
 
