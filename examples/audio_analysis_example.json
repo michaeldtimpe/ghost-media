@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "analyzer": "media-analyzer-audio",
+  "file": {
+    "path": "/Users/you/music/song.mp3",
+    "name": "song.mp3",
+    "format": "mp3",
+    "duration_sec": 234.567,
+    "sample_rate": 22050
+  },
+  "tempo": {
+    "bpm": 128.0,
+    "beat_count": 476,
+    "beat_times_sec": [0.4644, 0.9288, 1.3932, "..."]
+  },
+  "energy": {
+    "sample_rate_hz": 2,
+    "times_sec": [0.0, 0.5, 1.0, "..."],
+    "rms_energy": [0.001234, 0.045678, 0.089012, "..."],
+    "peak_energy": 0.312456,
+    "mean_energy": 0.098765,
+    "dynamic_range_db": 24.5
+  },
+  "spectral": {
+    "spectral_centroid_mean_hz": 2450.32,
+    "spectral_centroid_std_hz": 890.45,
+    "spectral_rolloff_mean_hz": 5600.78,
+    "spectral_bandwidth_mean_hz": 2100.56,
+    "zero_crossing_rate_mean": 0.078543,
+    "brightness": "moderate",
+    "warmth": "warm"
+  },
+  "key": {
+    "key": "A",
+    "mode": "minor",
+    "key_label": "A minor",
+    "confidence": 0.7823,
+    "chroma_distribution": {
+      "C": 0.4521, "C#": 0.1234, "D": 0.3456, "D#": 0.2345,
+      "E": 0.5678, "F": 0.1987, "F#": 0.0876, "G": 0.3210,
+      "G#": 0.1543, "A": 0.6789, "A#": 0.0654, "B": 0.2109
+    }
+  },
+  "sections": {
+    "section_count": 7,
+    "boundary_times_sec": [0.0, 15.234, 45.678, 90.123, 135.456, 180.789, 210.345, 234.567],
+    "sections": [
+      {"label": "section_0", "start_sec": 0.0, "end_sec": 15.234, "duration_sec": 15.234},
+      {"label": "section_1", "start_sec": 15.234, "end_sec": 45.678, "duration_sec": 30.444},
+      {"label": "section_2", "start_sec": 45.678, "end_sec": 90.123, "duration_sec": 44.445},
+      {"label": "section_3", "start_sec": 90.123, "end_sec": 135.456, "duration_sec": 45.333},
+      {"label": "section_4", "start_sec": 135.456, "end_sec": 180.789, "duration_sec": 45.333},
+      {"label": "section_5", "start_sec": 180.789, "end_sec": 210.345, "duration_sec": 29.556},
+      {"label": "section_6", "start_sec": 210.345, "end_sec": 234.567, "duration_sec": 24.222}
+    ]
+  },
+  "mood": {
+    "primary_mood": "intense_dark",
+    "tags": ["upbeat", "loud", "moderate", "melancholic", "dynamic"],
+    "valence": 0.35,
+    "arousal": 0.65
+  }
+}

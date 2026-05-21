@@ -1,0 +1,671 @@
+#!/usr/bin/env python3
+"""
+═══════════════════════════════════════════════════════════════════════════════
+  SEMANTIC ENRICHMENT PIPELINE
+  Add visual descriptions to existing media analysis using qwen2.5vl:7b
+  Target:  M1 MacBook Pro Max · 64 GB RAM
+═══════════════════════════════════════════════════════════════════════════════
+
+Reads existing .analysis.json files, extracts frames at scene boundaries
+from the source videos, and adds semantic descriptions via Ollama vision.
+
+Sampling: ~1 frame per 30s of content (min 4, max 30 per video).
+Enriched data is written to .enriched.json alongside the originals.
+
+Usage:
+    python enrich_analyses.py                     # run full pipeline
+    python enrich_analyses.py --status            # show progress
+    python enrich_analyses.py --pause             # pause after current frame
+    python enrich_analyses.py --resume            # resume
+    python enrich_analyses.py --source /path      # custom video source
+    python enrich_analyses.py --dry-run           # show plan without running
+    python enrich_analyses.py --video "Tame"      # only process matching videos
+
+Requires: ollama (with qwen2.5vl:7b), ffmpeg
+"""
+
+import json
+import os
+import sys
+import time
+import base64
+import argparse
+import subprocess
+import hashlib
+import urllib.request
+import urllib.error
+from pathlib import Path
+from datetime import datetime, timedelta
+
+# ─── Configuration ──────────────────────────────────────────────────────────
+
+MODEL = "qwen2.5vl:7b"
+OLLAMA_API = "http://localhost:11434"
+
+DEFAULT_SOURCE = "/Volumes/archive/3000/3100/visuals/raw visuals footage"
+ANALYSIS_DIR = Path(__file__).parent
+ENRICHMENT_DIR = ANALYSIS_DIR / "enriched"
+STATE_FILE = ENRICHMENT_DIR / "state.json"
+FRAMES_DIR = ENRICHMENT_DIR / "frames"
+
+# Sampling: ~1 frame per SAMPLE_INTERVAL seconds, bounded by min/max
+SAMPLE_INTERVAL_SEC = 30
+MIN_FRAMES_PER_VIDEO = 4
+MAX_FRAMES_PER_VIDEO = 30
+
+SCENE_PROMPT = """Analyze this video frame for use in an LLM-driven visual generation system. Provide a structured JSON response with these fields:
+
+{
+  "visual_description": "Concrete description of what you see — objects, shapes, patterns, textures, people, environments. Be specific.",
+  "color_palette": {
+    "dominant_colors": ["list of 3-5 color names"],
+    "color_relationship": "complementary | analogous | monochromatic | triadic | split-complementary",
+    "temperature": "warm | cool | neutral | mixed"
+  },
+  "composition": {
+    "layout": "description of spatial arrangement, depth, focal points",
+    "implied_motion": "none | pan_left | pan_right | zoom_in | zoom_out | rotation_cw | rotation_ccw | drift | pulse | spiral | complex",
+    "motion_description": "brief description of perceived movement or camera motion"
+  },
+  "visual_style": "photorealistic | abstract | geometric | organic | psychedelic | minimalist | glitch | cinematic | motion_graphics | particle | fractal | liquid | mixed",
+  "mood": {
+    "tone": "description of emotional quality",
+    "energy": "calm | building | moderate | intense | chaotic"
+  },
+  "transition_anchors": ["list of visual elements that could serve as transition points"],
+  "content_tags": ["list of descriptive tags for searchability"]
+}
+
+Return ONLY valid JSON, no markdown or explanation."""
+
+
+# ─── Formatting ─────────────────────────────────────────────────────────────
+
+def fmt_time(seconds):
+    if seconds < 0:
+        return "—"
+    h, r = divmod(int(seconds), 3600)
+    m, s = divmod(r, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def fmt_bar(pct, width=25):
+    filled = int(width * pct)
+    return "█" * filled + "░" * (width - filled)
+
+
+# ─── State ──────────────────────────────────────────────────────────────────
+
+def load_state():
+    if STATE_FILE.exists():
+        return json.loads(STATE_FILE.read_text())
+    return {
+        "status": "not_started",
+        "started_at": None,
+        "completed_videos": [],
+        "completed_frames": 0,
+        "total_frames": 0,
+        "paused": False,
+        "errors": [],
+        "timings": [],
+    }
+
+
+def save_state(state):
+    ENRICHMENT_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = STATE_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    tmp.rename(STATE_FILE)
+
+
+# ─── Analysis File Discovery ───────────────────────────────────────────────
+
+def find_analysis_files(video_filter=None):
+    """Find all .analysis.json files (excluding pass1 and meta files)."""
+    files = []
+    for f in sorted(ANALYSIS_DIR.glob("*.analysis.json")):
+        if "pass1" in f.name or f.name.startswith("_"):
+            continue
+        if video_filter and video_filter.lower() not in f.name.lower():
+            continue
+        files.append(f)
+    return files
+
+
+def load_analysis(path):
+    """Load an analysis JSON file."""
+    return json.loads(path.read_text())
+
+
+def find_source_video(analysis_data, analysis_path, source_dir):
+    """Find the source video file for an analysis."""
+    source = Path(source_dir)
+    # Try the original filename from the analysis
+    file_info = analysis_data.get("file", "")
+    if isinstance(file_info, dict):
+        original_file = file_info.get("path") or file_info.get("name", "")
+    else:
+        original_file = str(file_info)
+    if original_file:
+        # Try full path first
+        full = Path(original_file)
+        if full.exists():
+            return full
+        # Try just the filename in the source dir
+        candidate = source / full.name
+        if candidate.exists():
+            return candidate
+
+    # Fuzzy match from analysis filename
+    base = analysis_path.stem.replace(".analysis", "")
+    for ext in ['.mp4', '.mov', '.mkv', '.avi', '.webm']:
+        for f in source.iterdir():
+            if f.suffix.lower() == ext:
+                if base[:20] in f.stem or f.stem[:20] in base:
+                    return f
+    return None
+
+
+# ─── Frame Sampling ────────────────────────────────────────────────────────
+
+def plan_frame_samples(analysis_data):
+    """Decide which frames to sample based on scene boundaries and video length."""
+    metadata = analysis_data.get("metadata", {})
+    duration = metadata.get("duration_sec", 0)
+    scenes = analysis_data.get("scenes", {})
+    scene_list = scenes.get("scenes", []) if isinstance(scenes, dict) else scenes
+
+    # Target frame count based on duration
+    target = max(MIN_FRAMES_PER_VIDEO, min(MAX_FRAMES_PER_VIDEO, int(duration / SAMPLE_INTERVAL_SEC)))
+
+    # If fewer scenes than target, use all scene starts + midpoints
+    if len(scene_list) <= target:
+        samples = []
+        for s in scene_list:
+            start = s.get("start_sec", 0)
+            end = s.get("end_sec", start)
+            mid = (start + end) / 2
+            samples.append({
+                "time": start,
+                "label": f"scene_{s.get('scene_index', 0)}_start",
+                "scene_index": s.get("scene_index", 0),
+                "type": "scene_start"
+            })
+            if end - start > 5 and len(samples) < target:
+                samples.append({
+                    "time": mid,
+                    "label": f"scene_{s.get('scene_index', 0)}_mid",
+                    "scene_index": s.get("scene_index", 0),
+                    "type": "scene_mid"
+                })
+        # Cap at target
+        if len(samples) > target:
+            step = max(1, len(samples) // target)
+            samples = samples[::step][:target]
+        return samples
+
+    # More scenes than target: evenly distribute across scene boundaries
+    step = max(1, len(scene_list) // target)
+    selected_scenes = scene_list[::step][:target]
+
+    samples = []
+    for s in selected_scenes:
+        start = s.get("start_sec", 0)
+        samples.append({
+            "time": start,
+            "label": f"scene_{s.get('scene_index', 0)}_start",
+            "scene_index": s.get("scene_index", 0),
+            "type": "scene_start"
+        })
+
+    return samples[:target]
+
+
+# ─── Frame Extraction ──────────────────────────────────────────────────────
+
+def extract_frame(video_path, time_sec, output_path):
+    """Extract a single frame from a video."""
+    if output_path.exists() and output_path.stat().st_size > 0:
+        return True
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", str(time_sec), "-i", str(video_path),
+             "-frames:v", "1", "-q:v", "2", str(output_path)],
+            capture_output=True, timeout=30
+        )
+        return output_path.exists() and output_path.stat().st_size > 0
+    except Exception:
+        return False
+
+
+# ─── Ollama ─────────────────────────────────────────────────────────────────
+
+def check_ollama():
+    try:
+        req = urllib.request.Request(f"{OLLAMA_API}/api/tags")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            names = {m["name"] for m in data.get("models", [])}
+            return MODEL in names or any(MODEL.split(":")[0] in n for n in names)
+    except Exception:
+        return False
+
+
+def query_vision(image_path):
+    """Send image to qwen2.5vl:7b and return parsed JSON response."""
+    start = time.time()
+    try:
+        with open(image_path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        payload = json.dumps({
+            "model": MODEL,
+            "prompt": SCENE_PROMPT,
+            "images": [img_b64],
+            "stream": False,
+            "options": {"num_predict": 1024},
+        }).encode()
+
+        req = urllib.request.Request(
+            f"{OLLAMA_API}/api/generate", data=payload,
+            headers={"Content-Type": "application/json"}, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            data = json.loads(resp.read())
+            elapsed = time.time() - start
+            raw = data.get("response", "").strip()
+
+            # Try to parse as JSON
+            parsed = try_parse_json(raw)
+            return parsed, raw, elapsed, None
+
+    except Exception as e:
+        return None, None, time.time() - start, str(e)[:200]
+
+
+def try_parse_json(text):
+    """Try to extract JSON from a model response."""
+    # Direct parse
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to find JSON block in markdown
+    for marker in ["```json", "```"]:
+        if marker in text:
+            start = text.index(marker) + len(marker)
+            end = text.index("```", start) if "```" in text[start:] else len(text)
+            try:
+                return json.loads(text[start:end].strip())
+            except json.JSONDecodeError:
+                pass
+
+    # Try to find { ... } block
+    brace_start = text.find("{")
+    brace_end = text.rfind("}") + 1
+    if brace_start >= 0 and brace_end > brace_start:
+        try:
+            return json.loads(text[brace_start:brace_end])
+        except json.JSONDecodeError:
+            pass
+
+    return None
+
+
+# ─── Enrichment Output ─────────────────────────────────────────────────────
+
+def build_enriched_output(analysis_data, frame_results):
+    """Merge semantic descriptions into the analysis structure."""
+    enriched = dict(analysis_data)
+    enriched["schema_version"] = "2.0.0"
+    enriched["enrichment"] = {
+        "model": MODEL,
+        "timestamp": datetime.now().isoformat(),
+        "frame_count": len(frame_results),
+        "sample_interval_sec": SAMPLE_INTERVAL_SEC,
+    }
+
+    # Add per-scene enrichment
+    scenes = enriched.get("scenes", {})
+    scene_list = scenes.get("scenes", []) if isinstance(scenes, dict) else scenes
+
+    # Index frame results by scene_index
+    results_by_scene = {}
+    for fr in frame_results:
+        idx = fr.get("scene_index")
+        if idx is not None:
+            results_by_scene.setdefault(idx, []).append(fr)
+
+    # Enrich each scene that has results
+    for scene in scene_list:
+        idx = scene.get("scene_index")
+        if idx in results_by_scene:
+            descs = results_by_scene[idx]
+            # Use the first parsed result for this scene
+            for d in descs:
+                if d.get("parsed"):
+                    scene["semantic"] = d["parsed"]
+                    break
+            else:
+                # Fallback: store raw text
+                scene["semantic_raw"] = descs[0].get("raw", "")
+
+    # Also store all frame analyses in a flat list for easy access
+    enriched["frame_analyses"] = []
+    for fr in frame_results:
+        entry = {
+            "time_sec": fr["time"],
+            "label": fr["label"],
+            "scene_index": fr.get("scene_index"),
+        }
+        if fr.get("parsed"):
+            entry["analysis"] = fr["parsed"]
+        elif fr.get("raw"):
+            entry["analysis_raw"] = fr["raw"]
+        if fr.get("error"):
+            entry["error"] = fr["error"]
+        entry["inference_time_sec"] = fr.get("elapsed", 0)
+        enriched["frame_analyses"].append(entry)
+
+    return enriched
+
+
+# ─── Main Pipeline ──────────────────────────────────────────────────────────
+
+def run_pipeline(source_dir, video_filter=None, dry_run=False):
+    source = Path(source_dir)
+    if not source.exists():
+        print(f"\n  ERROR: Source not found: {source}")
+        print(f"  Mount the archive drive and try again.\n")
+        sys.exit(1)
+
+    ENRICHMENT_DIR.mkdir(parents=True, exist_ok=True)
+    FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+
+    state = load_state()
+    if state.get("paused") and not dry_run:
+        print("  Pipeline is paused. Use --resume to continue.")
+        return
+
+    # ── Ollama check ──
+    if not dry_run:
+        print(f"\n  Checking {MODEL}...", end=" ")
+        if check_ollama():
+            print("✓ ready")
+        else:
+            print("✗ not found")
+            print(f"  Run: ollama pull {MODEL}")
+            sys.exit(1)
+
+    # ── Discover analysis files ──
+    analysis_files = find_analysis_files(video_filter)
+    print(f"\n  Found {len(analysis_files)} analysis files")
+
+    # ── Plan the work ──
+    work_plan = []
+    total_frames = 0
+    already_done = set(state.get("completed_videos", []))
+
+    for af in analysis_files:
+        analysis = load_analysis(af)
+        video_path = find_source_video(analysis, af, source)
+        samples = plan_frame_samples(analysis)
+        total_frames += len(samples)
+
+        enriched_path = ENRICHMENT_DIR / af.name.replace(".analysis.json", ".enriched.json")
+        done = af.name in already_done
+
+        work_plan.append({
+            "analysis_path": af,
+            "analysis_data": analysis,
+            "video_path": video_path,
+            "samples": samples,
+            "enriched_path": enriched_path,
+            "done": done,
+        })
+
+    remaining = [w for w in work_plan if not w["done"]]
+    remaining_frames = sum(len(w["samples"]) for w in remaining)
+
+    print(f"  Total frames to analyze: {total_frames}")
+    print(f"  Already complete: {len(already_done)} videos")
+    print(f"  Remaining: {len(remaining)} videos, {remaining_frames} frames")
+    print(f"  Estimated time: {fmt_time(remaining_frames * 55)}")
+
+    if dry_run:
+        print(f"\n  {'─' * 68}")
+        print(f"  DRY RUN — planned work:")
+        print(f"  {'─' * 68}")
+        for w in work_plan:
+            name = w["analysis_path"].name[:50]
+            n = len(w["samples"])
+            found = "✓" if w["video_path"] else "✗ VIDEO NOT FOUND"
+            done = " (done)" if w["done"] else ""
+            print(f"    {name:<52s} {n:>3} frames  {found}{done}")
+        missing = [w for w in work_plan if not w["video_path"]]
+        if missing:
+            print(f"\n  ⚠ {len(missing)} videos missing from source directory")
+        return
+
+    # ── Run ──
+    state["status"] = "running"
+    state["started_at"] = state.get("started_at") or datetime.now().isoformat()
+    state["total_frames"] = total_frames
+    save_state(state)
+
+    pipeline_start = time.time()
+    global_frame = state.get("completed_frames", 0)
+
+    print(f"\n  {'═' * 68}")
+    print(f"  SEMANTIC ENRICHMENT PIPELINE")
+    print(f"  Model: {MODEL}")
+    print(f"  {len(remaining)} videos, {remaining_frames} frames")
+    print(f"  {'═' * 68}")
+
+    for vid_idx, work in enumerate(remaining, 1):
+        af = work["analysis_path"]
+        analysis = work["analysis_data"]
+        video_path = work["video_path"]
+        samples = work["samples"]
+        enriched_path = work["enriched_path"]
+
+        video_name = af.name.replace(".analysis.json", "")[:50]
+        duration = analysis.get("metadata", {}).get("duration_sec", 0)
+
+        # ── Pause check ──
+        state = load_state()
+        if state.get("paused"):
+            print(f"\n  ⏸  PAUSED. Use --resume to continue.\n")
+            state["status"] = "paused"
+            save_state(state)
+            return
+
+        if not video_path:
+            print(f"\n  ✗ {video_name} — source video not found, skipping")
+            state = load_state()
+            state["completed_videos"].append(af.name)
+            state["errors"].append({"video": af.name, "error": "source video not found"})
+            save_state(state)
+            continue
+
+        # ── Video header ──
+        overall_pct = global_frame / total_frames if total_frames else 0
+        overall_avg = (time.time() - pipeline_start) / max(1, global_frame) if global_frame > 0 else 55
+        overall_eta = overall_avg * (total_frames - global_frame)
+
+        print(f"\n  {'━' * 68}")
+        print(f"  [{vid_idx}/{len(remaining)}] {video_name}")
+        print(f"  {fmt_time(duration)} duration, {len(samples)} frames to analyze")
+        print(f"  Overall: {fmt_bar(overall_pct)} {global_frame}/{total_frames}"
+              f"  ETA: {fmt_time(overall_eta)}")
+        print(f"  {'━' * 68}")
+
+        # ── Extract & analyze frames ──
+        frame_dir = FRAMES_DIR / hashlib.md5(af.name.encode()).hexdigest()[:12]
+        frame_dir.mkdir(parents=True, exist_ok=True)
+
+        frame_results = []
+        video_start = time.time()
+
+        for fi, sample in enumerate(samples, 1):
+            # Pause check
+            state = load_state()
+            if state.get("paused"):
+                print(f"\n  ⏸  PAUSED. Use --resume to continue.\n")
+                state["status"] = "paused"
+                save_state(state)
+                return
+
+            t = sample["time"]
+            label = sample["label"]
+            frame_path = frame_dir / f"{label}_{t:.2f}s.jpg"
+
+            # Extract
+            if not extract_frame(video_path, t, frame_path):
+                print(f"    {fi:>3}/{len(samples)}  ✗ extract failed @ {t:.1f}s")
+                frame_results.append({
+                    "time": t, "label": label,
+                    "scene_index": sample.get("scene_index"),
+                    "error": "frame extraction failed"
+                })
+                global_frame += 1
+                continue
+
+            # Analyze
+            parsed, raw, elapsed, error = query_vision(str(frame_path))
+            global_frame += 1
+
+            frame_results.append({
+                "time": t, "label": label,
+                "scene_index": sample.get("scene_index"),
+                "parsed": parsed, "raw": raw,
+                "elapsed": elapsed, "error": error,
+            })
+
+            # Progress line
+            vid_pct = fi / len(samples)
+            overall_pct = global_frame / total_frames if total_frames else 0
+            overall_avg = (time.time() - pipeline_start) / global_frame
+            overall_eta = overall_avg * (total_frames - global_frame)
+            status = f"✗ {error[:30]}" if error else ("✓" if parsed else "~")
+
+            print(f"    {fmt_bar(vid_pct, 15)} {fi}/{len(samples)}"
+                  f"  @{t:>7.1f}s  {elapsed:>5.1f}s  {status:<8s}"
+                  f"  total:{global_frame}/{total_frames}  ETA:{fmt_time(overall_eta)}")
+
+            # Update state timing
+            state = load_state()
+            state["completed_frames"] = global_frame
+            if not error:
+                state.setdefault("timings", []).append(elapsed)
+            save_state(state)
+
+        # ── Write enriched file ──
+        enriched = build_enriched_output(analysis, frame_results)
+        enriched_path.write_text(json.dumps(enriched, indent=2, ensure_ascii=False))
+
+        # ── Video summary ──
+        video_elapsed = time.time() - video_start
+        successes = sum(1 for fr in frame_results if fr.get("parsed"))
+        failures = sum(1 for fr in frame_results if fr.get("error"))
+        partial = len(frame_results) - successes - failures
+
+        print(f"\n    Done: {successes} parsed, {partial} raw, {failures} failed"
+              f"  ({fmt_time(video_elapsed)})")
+        print(f"    → {enriched_path.name}")
+
+        state = load_state()
+        state["completed_videos"].append(af.name)
+        save_state(state)
+
+    # ── Complete ──
+    total_elapsed = time.time() - pipeline_start
+    print(f"\n  {'═' * 68}")
+    print(f"  ENRICHMENT COMPLETE")
+    print(f"  {global_frame} frames in {fmt_time(total_elapsed)}")
+    print(f"  Output: {ENRICHMENT_DIR}/")
+    print(f"  {'═' * 68}\n")
+
+    state = load_state()
+    state["status"] = "complete"
+    save_state(state)
+
+
+# ─── Status ─────────────────────────────────────────────────────────────────
+
+def show_status():
+    state = load_state()
+    done_v = len(state.get("completed_videos", []))
+    done_f = state.get("completed_frames", 0)
+    total_f = state.get("total_frames", 0)
+    pct = done_f / total_f if total_f else 0
+    timings = state.get("timings", [])
+    avg = sum(timings) / len(timings) if timings else 0
+
+    print(f"\n  ╔{'═' * 60}╗")
+    print(f"  ║{'SEMANTIC ENRICHMENT PIPELINE':^60}║")
+    print(f"  ╠{'═' * 60}╣")
+    print(f"  ║  Model:    {MODEL:<48}║")
+    print(f"  ║  Status:   {state['status']:<48}║")
+    print(f"  ║  Videos:   {done_v} complete{' ' * 40}║")
+    print(f"  ║  Frames:   {fmt_bar(pct)} {done_f}/{total_f} ({pct:.0%}){' ' * max(0, 15 - len(f'{done_f}/{total_f}'))}║")
+    if avg:
+        print(f"  ║  Avg/frame: {avg:.0f}s{' ' * 46}║")
+    if state.get("started_at") and done_f > 0:
+        elapsed = (datetime.now() - datetime.fromisoformat(state["started_at"])).total_seconds()
+        remaining = avg * (total_f - done_f) if avg else 0
+        print(f"  ║  Elapsed:  {fmt_time(elapsed):<48}║")
+        print(f"  ║  ETA:      {fmt_time(remaining):<48}║")
+    errs = state.get("errors", [])
+    if errs:
+        print(f"  ║  Errors:   {len(errs):<48}║")
+    print(f"  ╚{'═' * 60}╝\n")
+
+
+# ─── CLI ────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(description="Semantic enrichment pipeline for media analysis")
+    parser.add_argument("--source", default=DEFAULT_SOURCE, help="Source video directory")
+    parser.add_argument("--status", action="store_true", help="Show progress")
+    parser.add_argument("--pause", action="store_true", help="Pause after current frame")
+    parser.add_argument("--resume", action="store_true", help="Resume paused pipeline")
+    parser.add_argument("--dry-run", action="store_true", help="Show plan without running")
+    parser.add_argument("--video", default=None, help="Filter to matching videos (substring)")
+    parser.add_argument("--reset", action="store_true", help="Clear enrichment data")
+
+    args = parser.parse_args()
+
+    if args.reset:
+        if ENRICHMENT_DIR.exists():
+            import shutil
+            shutil.rmtree(ENRICHMENT_DIR)
+            print("  Enrichment data cleared.")
+        return
+
+    if args.status:
+        show_status()
+        return
+
+    if args.pause:
+        state = load_state()
+        state["paused"] = True
+        save_state(state)
+        print("  Pause signal sent.")
+        return
+
+    if args.resume:
+        state = load_state()
+        state["paused"] = False
+        state["status"] = "resuming"
+        save_state(state)
+        print("  Resuming...")
+        run_pipeline(args.source, args.video)
+        return
+
+    run_pipeline(args.source, args.video, args.dry_run)
+
+
+if __name__ == "__main__":
+    main()
