@@ -83,7 +83,7 @@ ENGINES = {
     # MLX (Apple-Silicon native)
     "mlx-qwen7b":     {"backend": "mlx", "model": "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"},
     "mlx-qwen32b":    {"backend": "mlx", "model": "mlx-community/Qwen2.5-VL-32B-Instruct-4bit"},
-    "mlx-internvl":   {"backend": "mlx", "model": "mlx-community/InternVL3-8B-4bit"},  # OCR specialist (verify id)
+    "mlx-internvl":   {"backend": "mlx", "model": "mlx-community/InternVL3-8B-MLX-4bit"},  # OCR specialist (verified id; plain -4bit 404s)
     "mlx-gemma3":     {"backend": "mlx", "model": "mlx-community/gemma-3-27b-it-4bit"}, # available in local archive (no download)
     # Cloud reference (optional; run explicitly)
     "claude-cli":     {"backend": "claude-cli", "model": "sonnet"},

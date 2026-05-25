@@ -3,44 +3,58 @@
 Revised after reviewer feedback. The harness lives in `bench/`; this doc is the
 execution plan: what we test, on what, how we judge, and in what order.
 
-## Status / how to resume (updated 2026-05-21)
+## Status / how to resume (updated 2026-05-25 — migrated to M5 Max)
 
-**Harness:** built + verified end-to-end. `python3 smoke_test.py` passes (incl. 15
-bench checks). Synthetic floor/ceiling render via `bench_run.py`. On the 6-clip pilot
-the **current system (`baseline`) covers only 7% of distinct states** (R@1-within
-0.33); the adaptive sampler yields **281 distinct states across 6 clips** (vs ~513 for
-the *entire* old corpus). Plans are built (`enriched/*.sampling_plan.json`).
+**Migration complete.** The project moved from the M1 Max (64 GB) to an **M5 Max
+(128 GB)**. The migration carried the *data* (repo, footage, sampling plans, extracted
+frames, enriched corpus) but **not the compute env**, which was rebuilt from scratch.
+Because we're now on the M5, the old two-phase hardware plan collapses: the **full
+`DEFAULT_ENGINES` lineup incl. the 32B engines runs in one pass**.
 
-**Footage:** 6 clips staged locally in `raw_footage/` (gitignored): EXC3_CM3, PAPERS,
-Tame Impala, show me lyrics, isshin REEL 2024, Disengaging. The bench prefers these
-over the archive drive.
+**Environment (rebuilt):** dedicated `.venv` on **Python 3.12** (`PYTHON=python3.12
+./setup.sh` then `pip install torch open_clip_torch mlx-vlm`); `requirements.lock`
+committed; `pyproject` pinned `>=3.12,<3.14`. Functional probe + `smoke_test.py` pass
+(torch/sympy + mlx + open_clip import; CLIP runs on `mps`). Ollama 0.24.0.
 
-**Models staged (no fresh download needed for these two):**
-- `ollama-qwen7b` → **pulled** (`qwen2.5vl:7b`, 6 GB). `ollama list` shows it.
-- `mlx-gemma3` → **copied + verified** from the local archive `/Volumes/home/hub`
-  (`mlx-community/gemma-3-27b-it-4bit`) into `~/.cache/huggingface/hub`; confirmed
-  resolvable offline via `huggingface_hub.snapshot_download(local_files_only=True)`
-  (all weight/processor files present). `mlx-vlm 0.5.0` installed. Note: `cp -R`
-  dereferenced the HF symlinks, so the cache entry is ~31 GB (blobs + snapshots both
-  real) instead of 16 GB — harmless, just disk. (Archive note: `/Volumes/home/hub`
-  is a HF cache of mostly *text* MLX models; **gemma-3-27b is the only vision model
-  there** — Qwen2.5-VL, InternVL, MiniCPM-V are NOT in it and must be downloaded.)
+**Models staged + fingerprinted** (`bench/results/model_fingerprints.json`):
+- ollama: `qwen2.5vl:7b` (Q4_K_M), `qwen2.5vl:32b` (Q4_K_M, 21 GB), `minicpm-v:8b` (Q4_0).
+- mlx (HF cache): `Qwen2.5-VL-7B-Instruct-4bit`, `Qwen2.5-VL-32B-Instruct-4bit`,
+  `InternVL3-8B-MLX-4bit` — the config's old `InternVL3-8B-4bit` 404s; **fixed** to the
+  real `-MLX-4bit` id in `config.py`.
+- kappa archive (`/Volumes/home/hub`) inventoried: **none of the VL engines are there**
+  (only text MLX models + the dropped gemma-3-27b) — all weights downloaded fresh.
+- `python3 bench_run.py health` = all 8 engines ✓.
+
+**Embedding consistency verified:** the migrated plan embeddings reproduce M5-encoded
+CLIP at **cosine 1.000000** (open_clip's new QuickGELU *warning* is cosmetic — both
+machines use standard GELU). No re-plan needed; **281 distinct states** across the 6
+clips. `baseline`/`clip-ceiling` re-scored on M5.
+
+**Smoke PASSED (Phase 3 gate):** `ollama-qwen7b` on EXC3_CM3 — composite **0.529 vs
+baseline 0.217**, coverage **0.98 vs 0.12**, JSON adherence 0.98, enum-snaps 0,
+non-compliance 0, 40/41 parsed, descriptions specific. Decisively beats the floor.
+
+**Throughput finding + fix:** Ollama loaded qwen2.5vl:7b at its **full 128k context →
+52 GB / ~16.5 s/frame**. Capped `num_ctx=8192` in `vision_backends.py` → **14 GB**, same
+quality. A *memory* fix, not latency (per-frame ~16.5 s is inherent). See lessons.md
+("A model server's default context window is a hidden memory bomb").
+
+**Migration key note:** `keys.canonical_key` is a SHA of the **absolute source path**,
+so M1 keys ≠ M5 keys. Fresh runs are self-consistent (`score_all` rebuilds the index
+under the live key); only the migrated synthetic raw had to be re-run on M5 (done).
 
 **NOT yet done — resume here:**
-1. **No real engine has been run yet** (the box had other models loaded; we deliberately
-   held off to avoid overloading it). Resume with ONE clip on ONE engine:
-   `python3 bench_run.py run --engines ollama-qwen7b --videos EXC3_CM3` → eyeball
-   descriptions + `has_english_text` via `bench_run.py compare --video EXC3_CM3`.
-2. Then the full pilot with the staged engines (`ollama-qwen7b,mlx-gemma3,baseline,clip-ceiling`),
-   then `compare`.
-3. Build text ground-truth (`bench_label.py --n 250`) for the text P/R metric.
-4. Acquire remaining engines (not in archive): `ollama pull minicpm-v` (verify 2.6 vs
-   4.5 tag); MLX `Qwen2.5-VL-7B/32B-4bit` + `InternVL3-…-4bit` (verify exact HF ids).
-   Defer the 32B engines to the M5 Max (~early Jun 2026 — see memory `m5-max-return`).
-
-**Gotchas:** `ANTHROPIC_API_KEY` was inadvertently printed to a transcript — **rotate
-it**. For the `claude-cli` engine/judge use `env -u ANTHROPIC_API_KEY …` to bill the
-subscription (the bench hard-blocks otherwise).
+1. **Full bake-off (Phase 4)** — awaiting go-ahead. Run `python3 bench_run.py run`
+   (bare = full `DEFAULT_ENGINES`). Budget ≈ 16.5 s/frame × 281 states/engine ≈ 75
+   min/engine (overnight for the lineup). Then `compare`.
+2. **Text ground-truth (Phase 2)** — interactive: `python3 bench_label.py --n 250`
+   (opens each frame; y/n). Needed for the text-F1 metric (currently 0). Oversample
+   hard cases; include negative controls. NB: qwen7b flagged text on 25/41 EXC3_CM3
+   frames — GT will show whether that's accurate or over-flagging.
+3. **Optional pre-sweep hardening** — 3-tier health (runtime/semantic/OCR sanity),
+   per-frame RAM/output-len telemetry, calibration audit.
+4. **claude-cli + judge** stay deferred (they touch `ANTHROPIC_API_KEY`; use
+   `env -u ANTHROPIC_API_KEY …` to bill the subscription — the bench hard-blocks otherwise).
 
 ## Why (the trap to avoid)
 "Video understanding for tagging" is **four partly-competing capabilities**, not one:

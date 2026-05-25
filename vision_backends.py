@@ -114,7 +114,11 @@ class OllamaBackend(VisionBackend):
                 "prompt": prompt,
                 "images": [_read_image_b64(image_path)],
                 "stream": False,
-                "options": {"num_predict": 1024},
+                # Cap context: single-frame description needs ~2.6k image tokens
+                # + prompt + 1024 output (~3.9k). Without this Ollama allocates the
+                # model's full 128k window (a ~52 GB KV cache for qwen2.5vl:7b),
+                # ballooning memory and inference time. 8192 leaves 2x headroom.
+                "options": {"num_predict": 1024, "num_ctx": 8192},
             }).encode()
             req = urllib.request.Request(
                 f"{self.api}/api/generate", data=payload,

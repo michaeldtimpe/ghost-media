@@ -151,3 +151,26 @@ entire CLIP/torch stack — embeddings, the assembler's dim-11 path, and the new
 search tool — while the numpy-only code kept working. Dependency health isn't
 all-or-nothing; a transitive dep can disable one capability cluster while the
 rest of the app looks fine.
+
+## A model server's default context window is a hidden memory bomb
+
+On the M5 migration, the first real VLM bench run (`qwen2.5vl:7b` via Ollama) ran
+at ~16.5 s/frame and `ollama ps` showed the model occupying **52 GB**. The cause
+wasn't the images — it was that Ollama loads a model with its **full advertised
+context window (128k for qwen2.5-VL)** by default, sizing the KV cache for 128k
+tokens when single-frame description actually uses ~3.9k (≈2.6k image tokens +
+prompt + 1024 output). Note qwen2.5-VL caps image tokens by downscaling, so a 4K
+frame and a 1080p frame cost the *same* ~2.6k tokens — verified via
+`prompt_eval_count`. Setting `num_ctx: 8192` in the Ollama options (`vision_backends.py`)
+dropped the footprint to **14 GB** with zero quality change (parse rate, enum
+compliance, and descriptions all identical; 8192 leaves 2× headroom).
+
+Crucially this fixed **memory, not latency** — the 128k allocation was a pure
+KV-cache cost, not extra compute, so per-frame time stayed ~16.5 s. Don't conflate
+the two.
+
+**Lesson:** a server's *default* context window is sized for the model's max, not
+your workload. On a fixed-RAM box that silently caps how many (and how large)
+models you can co-resident — a 52 GB-per-7B default would make a multi-engine
+bake-off thrash long before you exhaust "real" memory. Pin `num_ctx` to your
+actual token budget and confirm with `ollama ps` (SIZE/CONTEXT).
