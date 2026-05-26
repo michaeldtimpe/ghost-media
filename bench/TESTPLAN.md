@@ -3,58 +3,95 @@
 Revised after reviewer feedback. The harness lives in `bench/`; this doc is the
 execution plan: what we test, on what, how we judge, and in what order.
 
-## Status / how to resume (updated 2026-05-25 — migrated to M5 Max)
+## Status / how to resume (updated 2026-05-26 — bake-off + hybrid sweep complete)
 
-**Migration complete.** The project moved from the M1 Max (64 GB) to an **M5 Max
-(128 GB)**. The migration carried the *data* (repo, footage, sampling plans, extracted
-frames, enriched corpus) but **not the compute env**, which was rebuilt from scratch.
-Because we're now on the M5, the old two-phase hardware plan collapses: the **full
-`DEFAULT_ENGINES` lineup incl. the 32B engines runs in one pass**.
+**TL;DR.** The vision bake-off is **finished**. Production engine = **`mlx-qwen7b`**,
+escalation = **`mlx-internvl` on parse-failure only** (the simplest cascade rule that
+moves the needle). The next two unblocked steps are (a) wire MLX into
+`enrich_analyses.py` so the winner is callable from the production path, and (b) label
+the text ground-truth so text-F1 stops being zero. See "Next" below.
 
-**Environment (rebuilt):** dedicated `.venv` on **Python 3.12** (`PYTHON=python3.12
-./setup.sh` then `pip install torch open_clip_torch mlx-vlm`); `requirements.lock`
-committed; `pyproject` pinned `>=3.12,<3.14`. Functional probe + `smoke_test.py` pass
-(torch/sympy + mlx + open_clip import; CLIP runs on `mps`). Ollama 0.24.0.
+### Environment (still current)
+Dedicated `.venv` on **Python 3.12** at the repo root — invoke as `./.venv/bin/python`.
+torch 2.12, mlx-vlm 0.5, open_clip 3.3; `requirements.lock` committed; `pyproject`
+pinned `>=3.12,<3.14`. Ollama 0.24.0 with `num_ctx=8192` (the 128k default ballooned
+qwen2.5vl:7b to 52 GB — see lessons.md). All 8 base engines + 9 hybrids healthy.
 
-**Models staged + fingerprinted** (`bench/results/model_fingerprints.json`):
-- ollama: `qwen2.5vl:7b` (Q4_K_M), `qwen2.5vl:32b` (Q4_K_M, 21 GB), `minicpm-v:8b` (Q4_0).
+### Models staged + fingerprinted (`bench/results/model_fingerprints.json`)
+- ollama: `qwen2.5vl:7b` (Q4_K_M), `qwen2.5vl:32b`, `minicpm-v:8b` (Q4_0)
 - mlx (HF cache): `Qwen2.5-VL-7B-Instruct-4bit`, `Qwen2.5-VL-32B-Instruct-4bit`,
-  `InternVL3-8B-MLX-4bit` — the config's old `InternVL3-8B-4bit` 404s; **fixed** to the
-  real `-MLX-4bit` id in `config.py`.
-- kappa archive (`/Volumes/home/hub`) inventoried: **none of the VL engines are there**
-  (only text MLX models + the dropped gemma-3-27b) — all weights downloaded fresh.
-- `python3 bench_run.py health` = all 8 engines ✓.
+  `InternVL3-8B-MLX-4bit` (config's old `InternVL3-8B-4bit` 404s — **fixed**)
+- kappa `/Volumes/home/hub` had **no VL engines** (only text MLX + dropped gemma-3)
+- Embedding consistency: M1 plans reproduce on M5 at **cosine 1.000000** (281 states)
 
-**Embedding consistency verified:** the migrated plan embeddings reproduce M5-encoded
-CLIP at **cosine 1.000000** (open_clip's new QuickGELU *warning* is cosmetic — both
-machines use standard GELU). No re-plan needed; **281 distinct states** across the 6
-clips. `baseline`/`clip-ceiling` re-scored on M5.
+### Phase 4 bake-off results (M5 sequential + M1 InternVL parallel, merged)
+```
+engine            comp   R@1in  cover  jAdh  s/frm
+clip-ceiling     0.650   1.000  1.00   1.00    —    (ceiling)
+mlx-qwen7b       0.474   0.457  0.99   0.99    7.6  ← production winner
+mlx-internvl     0.466   0.423  1.00   1.00    4.3* ← escalation winner (*M5 prompt-probe)
+ollama-qwen7b    0.465   0.432  1.00   1.00   14.7
+ollama-qwen32b   0.453   0.416  0.98   0.98   39.9
+mlx-qwen32b      0.452   0.406  0.98   0.98   26.4
+ollama-minicpm   0.436   0.387  0.95   0.95    5.3  ← DROPPED (snap 1.26/frame)
+baseline         0.217   0.394  0.12   0.12    —    (floor)
+```
+- **The 32B engines do NOT beat the 7Bs** on any per-video R@1 subset. They produce
+  ~30% longer descriptions for the same composite, parse-fail on 3 frames the 7Bs
+  handle, and over-flag `has_english_text` systematically.
+- **MLX is ~1.9× faster than Ollama** for the same Qwen 7B; same composite to within
+  0.01. *Runtime is throughput, not quality* — at the aggregate; see lesson.
+- **InternVL is the OCR/specialist** — highest adjacent-discriminability (0.31),
+  perfect coverage + jAdh, zero hard errors. Different style vocabulary
+  (`geometric`-heavy) than the Qwen variants.
 
-**Smoke PASSED (Phase 3 gate):** `ollama-qwen7b` on EXC3_CM3 — composite **0.529 vs
-baseline 0.217**, coverage **0.98 vs 0.12**, JSON adherence 0.98, enum-snaps 0,
-non-compliance 0, 40/41 parsed, descriptions specific. Decisively beats the floor.
+### Phase 5 hybrid bake-off (`bench/hybrid.py` + 9 spec variants)
+Best hybrid: **V2 (error-fallback to qwen32b) 0.479** edges base by **+0.005**. V1
+(error-fallback to InternVL) and V5 (multi-trigger cascade) tie at 0.478. The user
+hypothesis "7B + 32B for descriptions" (V7) **lost decisively**: composite 0.446,
+**−0.028 vs base**. Verbose descriptions are anti-discriminative. See lessons.md.
 
-**Throughput finding + fix:** Ollama loaded qwen2.5vl:7b at its **full 128k context →
-52 GB / ~16.5 s/frame**. Capped `num_ctx=8192` in `vision_backends.py` → **14 GB**, same
-quality. A *memory* fix, not latency (per-frame ~16.5 s is inherent). See lessons.md
-("A model server's default context window is a hidden memory bomb").
+The +0.005 win came entirely from rescuing 3 parse-fail frames (coverage 0.99→1.00 +
+their R@1 contribution). Multi-trigger cascades (snap≥2, style=unclear, desc<150)
+added no composite value beyond the error trigger — pick the simpler rule.
 
-**Migration key note:** `keys.canonical_key` is a SHA of the **absolute source path**,
-so M1 keys ≠ M5 keys. Fresh runs are self-consistent (`score_all` rebuilds the index
-under the live key); only the migrated synthetic raw had to be re-run on M5 (done).
+### Decision (recorded)
+- **Production: `mlx-qwen7b`** — best calibration, conservative on text (under-flags
+  vs the 32B faction), 93% snap-clean, 7.6 s/frm.
+- **Escalation: `mlx-internvl` on parse-failure only** — V1 spec
+  (`bench/hybrids/V1-err-internvl.spec.json`). Recommended over V2's +0.001 because
+  InternVL has 100% jAdh + 0 errors while qwen32b has its own class-specific parse
+  failures.
+- **Drop**: `ollama-minicpm` (3/4 of frames need schema snapping), both **32B** engines
+  (no composite gain, slower, over-flag text, model-class parse failures).
 
-**NOT yet done — resume here:**
-1. **Full bake-off (Phase 4)** — awaiting go-ahead. Run `python3 bench_run.py run`
-   (bare = full `DEFAULT_ENGINES`). Budget ≈ 16.5 s/frame × 281 states/engine ≈ 75
-   min/engine (overnight for the lineup). Then `compare`.
-2. **Text ground-truth (Phase 2)** — interactive: `python3 bench_label.py --n 250`
-   (opens each frame; y/n). Needed for the text-F1 metric (currently 0). Oversample
-   hard cases; include negative controls. NB: qwen7b flagged text on 25/41 EXC3_CM3
-   frames — GT will show whether that's accurate or over-flagging.
-3. **Optional pre-sweep hardening** — 3-tier health (runtime/semantic/OCR sanity),
-   per-frame RAM/output-len telemetry, calibration audit.
-4. **claude-cli + judge** stay deferred (they touch `ANTHROPIC_API_KEY`; use
-   `env -u ANTHROPIC_API_KEY …` to bill the subscription — the bench hard-blocks otherwise).
+### Next (in priority order)
+1. **Wire MLX into `enrich_analyses.py`.** The bench has `vision_backends.MLXVisionBackend`
+   already; the production enrichment CLI only accepts `ollama / claude-cli / anthropic-api`.
+   Add `--backend mlx --model mlx-community/Qwen2.5-VL-7B-Instruct-4bit`. ~30 lines.
+2. **Pilot rescan with the winner** on one clip: `./.venv/bin/python enrich_analyses.py
+   --backend mlx --model mlx-community/Qwen2.5-VL-7B-Instruct-4bit --sampling-plan
+   --video EXC3_CM3`, then `--reenrich-flagged --backend mlx --model
+   mlx-community/InternVL3-8B-MLX-4bit` for the V1 cascade *for free* (the existing
+   re-enrich path IS the error fallback).
+3. **Phase 2 text ground-truth** (interactive, your task): `./.venv/bin/python
+   bench_label.py --n 250`. Activates text-F1 across all 17 engines via `score`
+   re-run. Highest-leverage frames are the 12 cross-engine max-disagreement frames
+   I identified — those resolve the qwen7b-conservative-vs-32B-over-flag split.
+4. **Full-corpus rescan** with the winner cascade. ≈14 h on M5 base pass + tiny
+   InternVL tail. **Requires `/Volumes/archive` mounted** for source footage.
+5. **Optional: judge audit** (deferred — touches `ANTHROPIC_API_KEY`):
+   `env -u ANTHROPIC_API_KEY ./.venv/bin/python bench_run.py run --engines
+   mlx-qwen7b,mlx-internvl,mlx-qwen32b --judge`. The one experiment that could
+   vindicate the 32B on caption-richness grounds CLIP can't see.
+6. **Optional: composite re-weighting** post-GT — adjacent-discriminability 0.15→0.20
+   / R@1in 0.40→0.35 promotes InternVL. Cheap via `score` (no engines re-run).
+
+### Hybrid harness reference (for future variants)
+- Specs: `bench/hybrids/*.spec.json` (declarative — author once, run anywhere).
+- Build: `./.venv/bin/python bench_run.py hybrid build` synthesizes raw from existing engine outputs.
+- Score: `./.venv/bin/python bench_run.py score` picks them up unchanged.
+- Real cost probe: `./.venv/bin/python bench_run.py hybrid run-cost --spec NAME --n 30` (pre/post-flight ollama unload baked in).
 
 ## Why (the trap to avoid)
 "Video understanding for tagging" is **four partly-competing capabilities**, not one:

@@ -174,3 +174,58 @@ your workload. On a fixed-RAM box that silently caps how many (and how large)
 models you can co-resident — a 52 GB-per-7B default would make a multi-engine
 bake-off thrash long before you exhaust "real" memory. Pin `num_ctx` to your
 actual token budget and confirm with `ollama ps` (SIZE/CONTEXT).
+
+## Verbosity is anti-discriminative for retrieval-truth captions
+
+The hybrid bake-off ran an isolated test: take the production engine (mlx-qwen7b)
+and swap *only* its `description` field for a 32B's verbose prose (V7) or InternVL's
+terse prose (V6), keeping everything else identical.
+
+| variant | mean desc length | composite | R@1-within |
+|---|---|---|---|
+| V6 (InternVL desc) | ~131 chars | 0.462 | 0.421 |
+| **mlx-qwen7b (sweet spot)** | **~358 chars** | **0.474** | **0.457** |
+| V7 (qwen32b desc) | ~465 chars | 0.446 | 0.399 |
+
+Both shorter *and* longer descriptions retrieved worse. The 32B's extra prose
+specifically dropped R@1 by 0.058 absolute (−13%), with the magnitude scaling per
+video with how much new but non-discriminative wording the 32B added. On Tame Impala
+the cliff was −0.16 R@1 — the 32B described the same scene with words that retrieved
+*less* well.
+
+The bench's CLIP-text composite reads description text through ViT-B-32-openai; if
+the description adds adjectives ("serene, rainy outdoor scene with a focus on…")
+without adding new visual content, the embedding drifts toward generic — losing the
+fingerprint that pins it to *this* frame versus its neighbors.
+
+**Lesson:** "bigger model = richer description = better caption" is the wrong
+intuition for retrieval-truth corpora. The production engine likely sits at a
+discriminability sweet spot — long enough to be specific, short enough to be
+distinctive. Don't reach for the heavier model on the assumption its verbose prose
+helps; measure first. (For *human-readability* the heavier model might still win —
+that's a different axis the CLIP composite can't see; use a judge audit to test.)
+
+## Same model, two runtimes ≠ same outputs
+
+Same weights (Qwen2.5-VL-7B-Instruct-4bit), same prompt, temp=0 — but mlx-vlm and
+Ollama-MLX produce per-frame descriptions at:
+- **median CLIP-text cosine 0.87** (not ~1.0)
+- **tag Jaccard 0.18** (~80% disjoint vocabularies)
+- **visual_style agrees 74%** of the time
+
+Aggregate composites are within 0.01 (CLIP-text retrieval is robust to surface
+variation), but the caption *prose* and tag *vocabulary* the corpus would carry are
+materially different. Calibration also diverges — MLX uses `"unclear"` 9× more often
+than Ollama on the same weights, and is correctly calibrated on a black frame where
+Ollama hallucinates a "pixelated face/mask pattern".
+
+Cause: Ollama's GGUF Q4_K_M ≠ mlx-community's MLX-4bit quant; activations diverge
+slightly; greedy decisions split at the token boundary; differences cascade through
+~400-token JSON generations. Despite both runtimes using "MLX on Apple Silicon" now,
+they're not interchangeable below the aggregate level.
+
+**Lesson:** the caption corpus and the embedding space it lives in are
+runtime-specific, not just model-specific. "We picked the model, the runtime is just
+throughput" is the trap: the production corpus locks in a runtime + quant combo, and
+switching later silently invalidates CLIP retrieval against the existing corpus.
+Pick the runtime + quant explicitly, write it into provenance, and stay there.
