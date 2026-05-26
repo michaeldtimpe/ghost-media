@@ -16,6 +16,8 @@ objective CLIP metrics only; the LLM-judge is an audit layer.
 import argparse
 
 from bench import config, runner, report, sampler
+from bench.hybrid import register_hybrids
+register_hybrids()  # adds bench/hybrids/*.spec.json to config.ENGINES so they're scorable
 
 
 def _engines(arg):
@@ -45,6 +47,11 @@ def main():
     p_c = sub.add_parser("compare")
     p_c.add_argument("--video", default=None); p_c.add_argument("--engines")
     p_c.add_argument("--videos", nargs="+")
+
+    p_hyb = sub.add_parser("hybrid", help="2-model hybrid synthesizer + cost probe")
+    p_hyb.add_argument("action", choices=["build", "run-cost", "list"])
+    p_hyb.add_argument("--spec", help="spec name (for run-cost)")
+    p_hyb.add_argument("--n", type=int, default=30, help="frames for run-cost probe")
 
     args = ap.parse_args()
 
@@ -81,6 +88,23 @@ def main():
             report.dump_video(reg, args.video, _engines(args.engines))
         else:
             report.render()
+        return
+
+    if args.cmd == "hybrid":
+        from bench import hybrid as H
+        if args.action == "list":
+            for s in H.load_specs():
+                bits = [f"base={s.base}"]
+                if s.escalation: bits.append(f"esc={s.escalation}")
+                if s.overrides:  bits.append(f"override={list(s.overrides)}")
+                print(f"  {s.name:32s} mode={s.mode:18s} {' '.join(bits)}")
+                if s.description: print(f"      {s.description}")
+        elif args.action == "build":
+            H.build_all()
+        elif args.action == "run-cost":
+            if not args.spec:
+                raise SystemExit("hybrid run-cost requires --spec NAME")
+            H.cascade_run(args.spec, n_sample=args.n)
         return
 
 

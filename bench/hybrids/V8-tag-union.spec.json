@@ -1,0 +1,9 @@
+{
+  "name": "hybrid-V8-tag-union",
+  "mode": "override",
+  "base": "mlx-qwen7b",
+  "overrides": {
+    "content_tags": {"op": "union", "with": "mlx-internvl"}
+  },
+  "description": "Tag vocabulary union: qwen7b ∪ InternVL tags (dedup, case-insensitive). Richer tag corpus for the assembler's lyric matching."
+}

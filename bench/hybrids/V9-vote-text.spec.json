@@ -1,0 +1,13 @@
+{
+  "name": "hybrid-V9-vote-text",
+  "mode": "override",
+  "base": "mlx-qwen7b",
+  "overrides": {
+    "has_english_text": {
+      "op": "majority-vote",
+      "from": ["mlx-qwen7b", "mlx-internvl", "ollama-qwen7b",
+               "ollama-qwen32b", "mlx-qwen32b", "ollama-minicpm"]
+    }
+  },
+  "description": "Resolve the 11/12 factional split on has_english_text via 6-engine majority vote (tie → False, conservative)."
+}
