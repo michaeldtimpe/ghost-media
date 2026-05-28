@@ -3,14 +3,23 @@
 Revised after reviewer feedback. The harness lives in `bench/`; this doc is the
 execution plan: what we test, on what, how we judge, and in what order.
 
-## Status / how to resume (updated 2026-05-28 — full corpus rescan complete)
+## Status / how to resume (updated 2026-05-28 — bake-off arc landed on main)
 
-**TL;DR.** The vision bake-off, text-GT labeling, **and** the full production rescan
-are all **done**. Production engine = **`mlx-qwen7b`** + **`mlx-internvl` on
-parse-failure** (V1 cascade). The 54-video corpus is fully enriched at
-**19,592/19,594 scenes with semantic (99.99%)** — the 2 holdouts are end-of-file tail
-scenes ffmpeg can't seek to. The bench harness, hybrids, text-F1 scoring, and CLIP
-embedding sidecars are all in sync with the production dataset.
+**TL;DR.** The vision bake-off, text-GT labeling, the full production rescan, **and**
+the merge to `main` are all **done**. Landed as **PR #1** (merge commit `28ef789`,
+6 commits preserving the bake-off → hybrid → MLX → rescan → lessons arc). Production
+engine = **`mlx-qwen7b`** + **`mlx-internvl` on parse-failure** (V1 cascade). The
+54-video corpus is fully enriched at **19,592/19,594 scenes with semantic (99.99%)** —
+the 2 holdouts are end-of-file tail scenes ffmpeg can't seek to. The bench harness,
+hybrids, text-F1 scoring, and CLIP embedding sidecars are all in sync with the
+production dataset. Pre-MLX backups archived offsite at
+`~/backups/ghost-media/pre-mlx-corpus-2026-05-28.tar.gz`.
+
+A follow-up audio rigor pass landed shortly after as **PR #2** (`e430b60`) and
+**PR #3** (`75ce526`); see `audio_field_audit.md` + `lessons.md` "# Audio side".
+Notably, `assemble_v2.py` now reads `bpm_timeline.confidence` and `onsets.times_sec`
+from the deep-analysis schema 2.1.0 — both fields were already produced by the
+analyzer, the uplift just wired them into scoring.
 
 ### Environment (still current)
 Dedicated `.venv` on **Python 3.12** at the repo root — invoke as `./.venv/bin/python`.
