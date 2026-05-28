@@ -1,0 +1,1624 @@
+{
+  "labels": [
+    {
+      "key": "5d93c12c015076b2",
+      "display_stem": "show me lyrics",
+      "scene_index": 0,
+      "cluster_id": 0,
+      "time_sec": 206.832,
+      "frame_path": "bench/results/frames/aebb0c0d6334a557/s000000_t00206.832.jpg",
+      "has_english_text": true,
+      "text": "Show Me feat. Hundred Waters Big Wild"
+    },
+    {
+      "key": "5d93c12c015076b2",
+      "display_stem": "show me lyrics",
+      "scene_index": 0,
+      "cluster_id": 1,
+      "time_sec": 62.19,
+      "frame_path": "bench/results/frames/aebb0c0d6334a557/s000000_t00062.190.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "5d93c12c015076b2",
+      "display_stem": "show me lyrics",
+      "scene_index": 0,
+      "cluster_id": 2,
+      "time_sec": 103.516,
+      "frame_path": "bench/results/frames/aebb0c0d6334a557/s000000_t00103.516.jpg",
+      "has_english_text": true,
+      "text": "Don't let me show cruelty though I may make mistakes"
+    },
+    {
+      "key": "5d93c12c015076b2",
+      "display_stem": "show me lyrics",
+      "scene_index": 0,
+      "cluster_id": 3,
+      "time_sec": 124.179,
+      "frame_path": "bench/results/frames/aebb0c0d6334a557/s000000_t00124.179.jpg",
+      "has_english_text": true,
+      "text": "Show me love, show me love, show me love"
+    },
+    {
+      "key": "5d93c12c015076b2",
+      "display_stem": "show me lyrics",
+      "scene_index": 0,
+      "cluster_id": 4,
+      "time_sec": 144.842,
+      "frame_path": "bench/results/frames/aebb0c0d6334a557/s000000_t00144.842.jpg",
+      "has_english_text": true,
+      "text": "And don't let me think too long of what I'm 'bout to face"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 0,
+      "cluster_id": 0,
+      "time_sec": 0.2,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000000_t00000.200.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 1,
+      "cluster_id": 0,
+      "time_sec": 22.539,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000001_t00022.539.jpg",
+      "has_english_text": true,
+      "text": "LOVE CRY CONFUSE | Our lives are shaped by the things we love | Love is the end of this universe | A.EDIT B.MAD C.DESIGN D.FLAT | Start 2024.10.18 End 2025.04.01 | EXC#3 | go"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 4,
+      "cluster_id": 0,
+      "time_sec": 26.343,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000004_t00026.343.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 7,
+      "cluster_id": 0,
+      "time_sec": 28.462,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000007_t00028.462.jpg",
+      "has_english_text": true,
+      "text": "scattered Latin letters and digits (design element)"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 10,
+      "cluster_id": 0,
+      "time_sec": 31.281,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000010_t00031.281.jpg",
+      "has_english_text": true,
+      "text": "kssyzrdsnEr 2025.3.3"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 13,
+      "cluster_id": 0,
+      "time_sec": 33.533,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000013_t00033.533.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 15,
+      "cluster_id": 0,
+      "time_sec": 40.924,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000015_t00040.924.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 18,
+      "cluster_id": 0,
+      "time_sec": 42.793,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000018_t00042.793.jpg",
+      "has_english_text": true,
+      "text": "(blurred watermark)"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 20,
+      "cluster_id": 0,
+      "time_sec": 44.094,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000020_t00044.094.jpg",
+      "has_english_text": true,
+      "text": "LEAVE ME | FOOTAGE HERO [3] | [0+1] | PAPERS"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 23,
+      "cluster_id": 0,
+      "time_sec": 46.313,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000023_t00046.313.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 26,
+      "cluster_id": 0,
+      "time_sec": 49.249,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000026_t00049.249.jpg",
+      "has_english_text": true,
+      "text": "Giants speak with... | Do you think | scattered letterforms"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 29,
+      "cluster_id": 0,
+      "time_sec": 54.021,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000029_t00054.021.jpg",
+      "has_english_text": true,
+      "text": "[02] Explanation for cry | Crying is a behavior | It is an expression of our emotional output to the outside world | [01] Explanation of Love | Love is an emotion | Our universe was formed by love | upload | download | xnaxeo | 2025.4.30 | What to do | Your image first | type | 001"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 32,
+      "cluster_id": 0,
+      "time_sec": 57.174,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000032_t00057.174.jpg",
+      "has_english_text": true,
+      "text": "small labels (borderline)"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 35,
+      "cluster_id": 0,
+      "time_sec": 60.394,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000035_t00060.394.jpg",
+      "has_english_text": true,
+      "text": "EX(C)CM3 | Date | Release | ON Preview | 100% | DELETE"
+    },
+    {
+      "key": "4767ed6ba0fbcc7f",
+      "display_stem": "EXC3_CM3",
+      "scene_index": 38,
+      "cluster_id": 0,
+      "time_sec": 68.231,
+      "frame_path": "bench/results/frames/04fe881a67569fe4/s000038_t00068.231.jpg",
+      "has_english_text": true,
+      "text": "EXC#3 CM3 | Music feeling alone by dokoid | Video kkmfd"
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 0,
+      "cluster_id": 0,
+      "time_sec": 0.2,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000000_t00000.200.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 0,
+      "cluster_id": 1,
+      "time_sec": 10.38,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000000_t00010.380.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 0,
+      "cluster_id": 2,
+      "time_sec": 20.56,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000000_t00020.560.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 1,
+      "cluster_id": 0,
+      "time_sec": 22.7,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000001_t00022.700.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 2,
+      "cluster_id": 0,
+      "time_sec": 27.82,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000002_t00027.820.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 3,
+      "cluster_id": 0,
+      "time_sec": 32.92,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000003_t00032.920.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 4,
+      "cluster_id": 0,
+      "time_sec": 36.5,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000004_t00036.500.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 5,
+      "cluster_id": 0,
+      "time_sec": 38.36,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000005_t00038.360.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 5,
+      "cluster_id": 1,
+      "time_sec": 44.384,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000005_t00044.384.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 5,
+      "cluster_id": 2,
+      "time_sec": 50.408,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000005_t00050.408.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 5,
+      "cluster_id": 3,
+      "time_sec": 56.432,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000005_t00056.432.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 5,
+      "cluster_id": 4,
+      "time_sec": 62.456,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000005_t00062.456.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 5,
+      "cluster_id": 5,
+      "time_sec": 68.48,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000005_t00068.480.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 6,
+      "cluster_id": 0,
+      "time_sec": 68.88,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000006_t00068.880.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 6,
+      "cluster_id": 1,
+      "time_sec": 72.931,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000006_t00072.931.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 6,
+      "cluster_id": 2,
+      "time_sec": 81.034,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000006_t00081.034.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 6,
+      "cluster_id": 3,
+      "time_sec": 85.086,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000006_t00085.086.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 6,
+      "cluster_id": 4,
+      "time_sec": 97.24,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000006_t00097.240.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "bf2479149bc2d9a1",
+      "display_stem": "Tame Impala - Nangs _Music Video_",
+      "scene_index": 7,
+      "cluster_id": 0,
+      "time_sec": 100.454,
+      "frame_path": "bench/results/frames/b3b988910f0a8909/s000007_t00100.454.jpg",
+      "has_english_text": true,
+      "text": "Point... Stop (stylized psychedelic text)"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 0,
+      "cluster_id": 0,
+      "time_sec": 1.552,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000000_t00001.552.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 2,
+      "cluster_id": 0,
+      "time_sec": 4.671,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000002_t00004.671.jpg",
+      "has_english_text": true,
+      "text": "03 (partial blurred text in glitch design)"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 5,
+      "cluster_id": 0,
+      "time_sec": 7.04,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000005_t00007.040.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 7,
+      "cluster_id": 0,
+      "time_sec": 8.976,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000007_t00008.976.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 10,
+      "cluster_id": 0,
+      "time_sec": 11.445,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000010_t00011.445.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 12,
+      "cluster_id": 0,
+      "time_sec": 13.13,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000012_t00013.130.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 15,
+      "cluster_id": 0,
+      "time_sec": 15.315,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000015_t00015.315.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 17,
+      "cluster_id": 0,
+      "time_sec": 16.333,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000017_t00016.333.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 20,
+      "cluster_id": 0,
+      "time_sec": 21.822,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000020_t00021.822.jpg",
+      "has_english_text": true,
+      "text": "PATTERN 01 | DISENGAGING | SIMPLE GRAPHIC MOTION | CODE:702399952 | TWITTER.COM/KK_MFD"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 22,
+      "cluster_id": 0,
+      "time_sec": 34.218,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000022_t00034.218.jpg",
+      "has_english_text": true,
+      "text": "PATTERN 03 | DISENGAGING | SIMPLE GRAPHIC MOTION | ADD SOME COLOUR | MIX TEXTURE ELEMENTS | CODE:702399952 | TWITTER.COM/KK_MFD"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 25,
+      "cluster_id": 0,
+      "time_sec": 39.456,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000025_t00039.456.jpg",
+      "has_english_text": true,
+      "text": "PATTERN 04 | DISENGAGING | SIMPLE GRAPHIC MOTION | ADD SOME COLOUR | MIX TEXTURE ELEMENTS | WITH REAL WORLD | CODE:702399952 | TWITTER.COM/KK_MFD"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 27,
+      "cluster_id": 0,
+      "time_sec": 42.026,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000027_t00042.026.jpg",
+      "has_english_text": true,
+      "text": "PATTERN 03 | Disengaging (stylized overlay) | CODE:702399952"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 29,
+      "cluster_id": 1,
+      "time_sec": 52.619,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000029_t00052.619.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 31,
+      "cluster_id": 0,
+      "time_sec": 57.458,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000031_t00057.458.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 34,
+      "cluster_id": 0,
+      "time_sec": 60.66,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000034_t00060.660.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 37,
+      "cluster_id": 0,
+      "time_sec": 65.666,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000037_t00065.666.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 39,
+      "cluster_id": 0,
+      "time_sec": 69.053,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000039_t00069.053.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 42,
+      "cluster_id": 0,
+      "time_sec": 70.921,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000042_t00070.921.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 44,
+      "cluster_id": 0,
+      "time_sec": 72.055,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000044_t00072.055.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 47,
+      "cluster_id": 0,
+      "time_sec": 74.591,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000047_t00074.591.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 49,
+      "cluster_id": 0,
+      "time_sec": 76.593,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000049_t00076.593.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 52,
+      "cluster_id": 0,
+      "time_sec": 78.395,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000052_t00078.395.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 54,
+      "cluster_id": 0,
+      "time_sec": 79.463,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000054_t00079.463.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 57,
+      "cluster_id": 0,
+      "time_sec": 81.749,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000057_t00081.749.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 59,
+      "cluster_id": 0,
+      "time_sec": 83.667,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000059_t00083.667.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 62,
+      "cluster_id": 0,
+      "time_sec": 85.769,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000062_t00085.769.jpg",
+      "has_english_text": true,
+      "text": "A PERSON WHO ___ WITH REALITY (partly obscured)"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 64,
+      "cluster_id": 0,
+      "time_sec": 87.821,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000064_t00087.821.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 66,
+      "cluster_id": 0,
+      "time_sec": 96.063,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000066_t00096.063.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 69,
+      "cluster_id": 0,
+      "time_sec": 100.701,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000069_t00100.701.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 71,
+      "cluster_id": 0,
+      "time_sec": 102.052,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000071_t00102.052.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 74,
+      "cluster_id": 0,
+      "time_sec": 105.873,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000074_t00105.873.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 76,
+      "cluster_id": 0,
+      "time_sec": 109.476,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000076_t00109.476.jpg",
+      "has_english_text": true,
+      "text": "DISENGAGING DISENGAGING (mirror layout)"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 79,
+      "cluster_id": 0,
+      "time_sec": 111.745,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000079_t00111.745.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 81,
+      "cluster_id": 0,
+      "time_sec": 113.013,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000081_t00113.013.jpg",
+      "has_english_text": true,
+      "text": "TTERN 04 (partial PATTERN 04) | DISENGAGING | SIMPLE GRAPHIC MOTION ADD SOME COLOUR MIX TEXTURE ELEMENTS WITH REAL WORLD"
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 84,
+      "cluster_id": 0,
+      "time_sec": 114.898,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000084_t00114.898.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 86,
+      "cluster_id": 0,
+      "time_sec": 116.132,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000086_t00116.132.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 89,
+      "cluster_id": 0,
+      "time_sec": 117.701,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000089_t00117.701.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 91,
+      "cluster_id": 0,
+      "time_sec": 119.085,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000091_t00119.085.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 94,
+      "cluster_id": 0,
+      "time_sec": 121.137,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000094_t00121.137.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 96,
+      "cluster_id": 0,
+      "time_sec": 122.806,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000096_t00122.806.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "b639c32f1aa4c2ef",
+      "display_stem": "Disengaging",
+      "scene_index": 99,
+      "cluster_id": 0,
+      "time_sec": 124.741,
+      "frame_path": "bench/results/frames/fbd488162fb4ecc7/s000099_t00124.741.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 0,
+      "cluster_id": 0,
+      "time_sec": 0.684,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000000_t00000.684.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 1,
+      "cluster_id": 0,
+      "time_sec": 6.022,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000001_t00006.022.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 2,
+      "cluster_id": 0,
+      "time_sec": 10.944,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000002_t00010.944.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 3,
+      "cluster_id": 0,
+      "time_sec": 11.411,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000003_t00011.411.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 3,
+      "cluster_id": 1,
+      "time_sec": 22.389,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000003_t00022.389.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 4,
+      "cluster_id": 0,
+      "time_sec": 22.889,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000004_t00022.889.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 5,
+      "cluster_id": 0,
+      "time_sec": 23.641,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000005_t00023.641.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 6,
+      "cluster_id": 0,
+      "time_sec": 24.341,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000006_t00024.341.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 7,
+      "cluster_id": 0,
+      "time_sec": 24.892,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000007_t00024.892.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 8,
+      "cluster_id": 0,
+      "time_sec": 25.642,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000008_t00025.642.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 9,
+      "cluster_id": 0,
+      "time_sec": 26.343,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000009_t00026.343.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 10,
+      "cluster_id": 0,
+      "time_sec": 26.843,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000010_t00026.843.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 11,
+      "cluster_id": 0,
+      "time_sec": 27.394,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000011_t00027.394.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 12,
+      "cluster_id": 0,
+      "time_sec": 27.944,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000012_t00027.944.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 14,
+      "cluster_id": 0,
+      "time_sec": 28.946,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000014_t00028.946.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 15,
+      "cluster_id": 0,
+      "time_sec": 29.446,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000015_t00029.446.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 16,
+      "cluster_id": 0,
+      "time_sec": 29.98,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000016_t00029.980.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 17,
+      "cluster_id": 0,
+      "time_sec": 30.764,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000017_t00030.764.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 18,
+      "cluster_id": 0,
+      "time_sec": 31.515,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000018_t00031.515.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 19,
+      "cluster_id": 0,
+      "time_sec": 32.099,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000019_t00032.099.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 20,
+      "cluster_id": 0,
+      "time_sec": 32.85,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000020_t00032.850.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 21,
+      "cluster_id": 0,
+      "time_sec": 33.734,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000021_t00033.734.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 22,
+      "cluster_id": 0,
+      "time_sec": 34.568,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000022_t00034.568.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 23,
+      "cluster_id": 0,
+      "time_sec": 35.185,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000023_t00035.185.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 24,
+      "cluster_id": 0,
+      "time_sec": 35.853,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000024_t00035.853.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 25,
+      "cluster_id": 0,
+      "time_sec": 36.52,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000025_t00036.520.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 26,
+      "cluster_id": 0,
+      "time_sec": 40.891,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000026_t00040.891.jpg",
+      "has_english_text": true,
+      "text": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 (Go board column headers)"
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 27,
+      "cluster_id": 0,
+      "time_sec": 45.212,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000027_t00045.212.jpg",
+      "has_english_text": true,
+      "text": "6:24 20:01 1.8 5:52 18:24 (newspaper time stamps)"
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 27,
+      "cluster_id": 2,
+      "time_sec": 79.875,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000027_t00079.875.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 27,
+      "cluster_id": 3,
+      "time_sec": 88.541,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000027_t00088.541.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 27,
+      "cluster_id": 4,
+      "time_sec": 97.207,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000027_t00097.207.jpg",
+      "has_english_text": true,
+      "text": "4.5 6 10 (floor plan room sizes)"
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 27,
+      "cluster_id": 5,
+      "time_sec": 105.873,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000027_t00105.873.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 28,
+      "cluster_id": 0,
+      "time_sec": 154.988,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000028_t00154.988.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 28,
+      "cluster_id": 1,
+      "time_sec": 114.392,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000028_t00114.392.jpg",
+      "has_english_text": true,
+      "text": "numbered Go stones (15 73 77 78 80 ...)"
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 28,
+      "cluster_id": 2,
+      "time_sec": 122.511,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000028_t00122.511.jpg",
+      "has_english_text": true,
+      "text": "17:01 2:06 11:13 23:4 9:43 (newspaper time stamps)"
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 28,
+      "cluster_id": 3,
+      "time_sec": 130.63,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000028_t00130.630.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 28,
+      "cluster_id": 4,
+      "time_sec": 138.75,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000028_t00138.750.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 28,
+      "cluster_id": 5,
+      "time_sec": 146.869,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000028_t00146.869.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 29,
+      "cluster_id": 0,
+      "time_sec": 155.972,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000029_t00155.972.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 30,
+      "cluster_id": 0,
+      "time_sec": 157.558,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000030_t00157.558.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "fd0c1cbf19a7586f",
+      "display_stem": "PAPERS",
+      "scene_index": 31,
+      "cluster_id": 0,
+      "time_sec": 162.479,
+      "frame_path": "bench/results/frames/da8cf711181dc426/s000031_t00162.479.jpg",
+      "has_english_text": true,
+      "text": "THE END"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 0,
+      "cluster_id": 0,
+      "time_sec": 4.266,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000000_t00004.266.jpg",
+      "has_english_text": true,
+      "text": "isshin REEL 2024 | (Japanese warning + Wi-Fi mention | 対象年齢 300歳)"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 13,
+      "cluster_id": 0,
+      "time_sec": 23.767,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000013_t00023.767.jpg",
+      "has_english_text": true,
+      "text": "instax | INSTAX (camera + printer logos)"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 15,
+      "cluster_id": 0,
+      "time_sec": 26.383,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000015_t00026.383.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 17,
+      "cluster_id": 0,
+      "time_sec": 27.85,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000017_t00027.850.jpg",
+      "has_english_text": true,
+      "text": "Twitter"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 22,
+      "cluster_id": 0,
+      "time_sec": 34.016,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000022_t00034.016.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 24,
+      "cluster_id": 0,
+      "time_sec": 35.784,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000024_t00035.784.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 26,
+      "cluster_id": 0,
+      "time_sec": 37.833,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000026_t00037.833.jpg",
+      "has_english_text": true,
+      "text": "Glandent"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 29,
+      "cluster_id": 0,
+      "time_sec": 41.084,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000029_t00041.084.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 31,
+      "cluster_id": 0,
+      "time_sec": 42.5,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000031_t00042.500.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 42,
+      "cluster_id": 0,
+      "time_sec": 56.117,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000042_t00056.117.jpg",
+      "has_english_text": true,
+      "text": "CARDS | ST | OUT | TICKETS | TRA | AND IC | SILY TO LOSE | CORPER | NO | ASH | FED | CONTRACT (retro card-/ticket-themed signage)"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 44,
+      "cluster_id": 0,
+      "time_sec": 57.867,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000044_t00057.867.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 49,
+      "cluster_id": 0,
+      "time_sec": 62.2,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000049_t00062.200.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 51,
+      "cluster_id": 0,
+      "time_sec": 64.567,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000051_t00064.567.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 57,
+      "cluster_id": 0,
+      "time_sec": 72.817,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000057_t00072.817.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 2,
+      "cluster_id": 0,
+      "time_sec": 9.616,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000002_t00009.616.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 3,
+      "cluster_id": 0,
+      "time_sec": 10.6,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000003_t00010.600.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 4,
+      "cluster_id": 0,
+      "time_sec": 11.8,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000004_t00011.800.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 6,
+      "cluster_id": 0,
+      "time_sec": 14.583,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000006_t00014.583.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 7,
+      "cluster_id": 0,
+      "time_sec": 15.117,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000007_t00015.117.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 8,
+      "cluster_id": 0,
+      "time_sec": 16.05,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000008_t00016.050.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 10,
+      "cluster_id": 0,
+      "time_sec": 19.183,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000010_t00019.183.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 11,
+      "cluster_id": 0,
+      "time_sec": 20.95,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000011_t00020.950.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 12,
+      "cluster_id": 0,
+      "time_sec": 22.183,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000012_t00022.183.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 19,
+      "cluster_id": 0,
+      "time_sec": 31.117,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000019_t00031.117.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 33,
+      "cluster_id": 0,
+      "time_sec": 44.916,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000033_t00044.916.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 34,
+      "cluster_id": 0,
+      "time_sec": 46.117,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000034_t00046.117.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 36,
+      "cluster_id": 0,
+      "time_sec": 47.617,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000036_t00047.617.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 37,
+      "cluster_id": 0,
+      "time_sec": 48.617,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000037_t00048.617.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 38,
+      "cluster_id": 0,
+      "time_sec": 49.767,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000038_t00049.767.jpg",
+      "has_english_text": true,
+      "text": "(small text on vinyl disc edge)"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 40,
+      "cluster_id": 0,
+      "time_sec": 51.533,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000040_t00051.533.jpg",
+      "has_english_text": true,
+      "text": "isshin | Hi, Iam IsshinTanaka. motion designer / visual artist"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 41,
+      "cluster_id": 0,
+      "time_sec": 53.683,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000041_t00053.683.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 45,
+      "cluster_id": 0,
+      "time_sec": 58.483,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000045_t00058.483.jpg",
+      "has_english_text": true,
+      "text": "ATOMica"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 52,
+      "cluster_id": 0,
+      "time_sec": 66.55,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000052_t00066.550.jpg",
+      "has_english_text": true,
+      "text": "SQUARE ENIX MUSIC (NEM)"
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 53,
+      "cluster_id": 0,
+      "time_sec": 67.534,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000053_t00067.534.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 54,
+      "cluster_id": 0,
+      "time_sec": 69.133,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000054_t00069.133.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 59,
+      "cluster_id": 0,
+      "time_sec": 74.2,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000059_t00074.200.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 60,
+      "cluster_id": 0,
+      "time_sec": 74.95,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000060_t00074.950.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 61,
+      "cluster_id": 0,
+      "time_sec": 75.583,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000061_t00075.583.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 63,
+      "cluster_id": 0,
+      "time_sec": 77.833,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000063_t00077.833.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 64,
+      "cluster_id": 0,
+      "time_sec": 79.0,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000064_t00079.000.jpg",
+      "has_english_text": false,
+      "text": ""
+    },
+    {
+      "key": "276bdebd6398b16e",
+      "display_stem": "isshin REEL 2024",
+      "scene_index": 65,
+      "cluster_id": 0,
+      "time_sec": 79.767,
+      "frame_path": "bench/results/frames/9f6a9510a958ea44/s000065_t00079.767.jpg",
+      "has_english_text": false,
+      "text": ""
+    }
+  ]
+}
