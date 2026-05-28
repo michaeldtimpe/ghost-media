@@ -376,3 +376,134 @@ enough to break JSON validity.
 For high-stakes parses, build retry into the cascade — a second attempt with the
 same args succeeds ~75% of the time. Don't waste effort hunting for a "real"
 cause when the failure rate is sub-1%.
+
+# Audio side
+
+The audio rigor uplift (Phases 0–6) closed the obvious gaps between what
+`analyze_dj_set_deep.py` computes and what `assemble_v2.py` consumes. Field-level
+contract is documented in [`audio_field_audit.md`](audio_field_audit.md); the
+lessons below are the operational tax we paid getting there.
+
+## Persisted signals should justify their storage cost even when unwired
+
+Pre-uplift, `.deep-analysis.json` carried 14 top-level keys, several with
+35,831-sample timelines × multiple fields per sample. Of those, `assemble_v2.py`
+read four (`total_rms`, `sub_bass`+`bass`, `harmonic`+`percussive`, `centroid_hz`,
+`bpm`). The rest sat in the file producing no scoring or downstream behavior.
+
+The fix wasn't "wire everything" — most weren't worth wiring. The fix was to
+split each field three ways: actively consumed, strategic latent (kept because
+key/transition-aware sequencing is a credible future), or unjustified
+accumulation (dropped from JSON; compute retained in-process for any
+internal aggregate).
+
+The audit produced a 65% file-size reduction (37 MB → 13 MB on a 70-min set)
+without touching any compute path — pure persistence pruning.
+
+**Lesson:** unwired output is not free. A field being computed but unread costs
+storage and parse time, but more importantly it lies about the system's
+intended behavior. Decide per-field: read it, keep it for a named future, or
+drop it.
+
+## Dead JSON fields create false documentation
+
+The strongest argument for the audit doc as a permanent artifact (not throwaway
+scaffolding): any future developer who reads `compute_chromagram` and sees its
+output assigned into `result["chroma_timeline"]` will reasonably assume some
+downstream tool reads it. The 37,000-sample chroma timeline was producing
+exactly zero scoring decisions, but the code shape said otherwise.
+
+This is the inverse of "Wired is not working" (line 27): there, a feature
+appears active but isn't; here, a feature appears intentional but isn't. The
+mitigation is the same — write down the contract somewhere it can be read
+without running the code.
+
+**Lesson:** the contract of a JSON output is what code reads from it, not what
+the producer writes into it. Document the read side in a discoverable place
+(here: `audio_field_audit.md`) so writes don't masquerade as semantics.
+
+## Librosa beat tracking ships unvalidated
+
+`librosa.beat.beat_track` returns beat times. It does not return any indication
+of confidence, tracking stability, or whether it locked octave. Octave-doublings
+(2× or 0.5× the true tempo), mid-set tracker failures, and grid drift all ship
+silently to downstream consumers unless validated externally.
+
+The new `beat_quality` block emits three observability metrics: IOI outlier
+rate (±15% fractional tolerance, robust against the outliers themselves
+inflating np.std), octave-doubling rate plus max consecutive-window run length
+(a 3-window run = 24s of locked-wrong tempo is qualitatively worse than 3
+scattered windows), and metronomic deviation. Non-blocking warnings; the
+analyzer still completes.
+
+**Lesson:** when a third-party library produces a primary signal with no
+internal quality readout, build the readout yourself. Especially when the
+signal feeds production downstream.
+
+## Librosa's tempogram locks at half/double tempo during DJ transitions
+
+The 5-set Phase 5b backfill caught this clearly: 3 of 5 sets had runs of 7–15
+consecutive 8-second windows (≈56–120s of wall time) where the windowed BPM
+ratio fell in `[0.45, 0.55]` or `[1.9, 2.1]` relative to `global_bpm`. Looking
+at the source audio, these correspond to track transition windows where
+`librosa.feature.tempo` briefly locks onto the incoming track's beat division
+before settling. The `octave_doubling_run_max` warning fires at 3+ windows by
+design — these are real lock events, not threshold noise.
+
+The downstream impact is subtle: `bpm_timeline.bpm` values during those
+windows are off by 2×, which Phase 2's `bpm_confidence` (computed from the
+tempogram autocorrelation, not from BPM-stability) can't fix on its own.
+Future work could either (a) post-process windowed BPM to median-filter
+octave jumps, or (b) wire the locked-window mask into Phase 2 confidence so
+clip selection inside transition zones inherits low trust.
+
+**Lesson:** librosa beat/tempo APIs make per-window decisions independently;
+they don't enforce continuity across windows. In long DJ-set audio with
+multiple tempo regimes, expect this to surface at every transition. Detect
+it post-hoc, don't trust raw `bpm_timeline` inside the runs.
+
+## `metronomic_deviation_max_sec` is NOT "tracker drift"
+
+The third beat-quality check measures the maximum absolute deviation between
+observed beats and an extrapolated constant-tempo grid built from `global_bpm`.
+On the smoke set this lit up at 44s — alarming if you read the name as "drift"
+but accurate to what the math computes: this set has windowed BPM ranging
+83–199 across 70 minutes, so a constant-tempo extrapolation built on the global
+129 BPM is going to diverge by tens of seconds. That's healthy DJ-set tempo
+variation, not librosa failing to track.
+
+The original name in the plan was "phase drift"; reviewer rightly flagged that
+the metric *conflates* local tracker quality with global metronomic adherence.
+Renamed before merge.
+
+**Lesson:** when a metric name implies a verdict ("drift", "error", "failure"),
+the math has to actually mean that. If it doesn't, rename to match the math —
+even at the cost of a less catchy label. Useful as one signal among several is
+worth more than misleading as a verdict.
+
+## `PhraseFeatures` scoring weights co-evolve with `select_clips`
+
+The score-weight constants in `score_scene` (motion_match × 1.0, bright_match
+× 0.8, dur_match × 0.9, sat × 0.5, contrast × 0.5, …) are not a balanced design
+arrived at in one sitting — they reflect years of tuning against the
+diversity windows in `select_clips` and the `MAX_SOURCE_USAGE_MULT` cap. New
+scoring components that show up at weight 1.0+ will either swamp the rest of
+the function or destabilize the diversity invariants the cap relies on.
+
+The Phase 2 additions landed conservatively: `onset_match` at weight 0.4 (about
+half of `dur_match`); `bpm_confidence` as a *multiplier* on `dur_match` with a
+floor of 0.6 (so even at zero confidence the duration term contributes 60% of
+its existing weight). Both are dataset-relative — percentile-rank within set
+for onset density, per-set 95th-pct calibration for the confidence divisor —
+because hardcoded scales silently break when the input distribution shifts
+(see "Don't trust a single scalar's scale across a heterogeneous corpus",
+line 56).
+
+The post-uplift smoke run showed mean score 1.30 vs baseline 1.25 (+4%) and
+source diversity broadened from a single-leader to a 3-way tie at top — both
+healthy directions. A weight-1.0 onset_match would have produced different
+results, almost certainly worse.
+
+**Lesson:** when adding a new scoring component to a tuned pipeline, land at
+<0.5 weight or as a multiplier on an existing term. Verify against a smoke set
+with frozen seed; ratchet up only after observing the distribution shift.

@@ -262,6 +262,110 @@ def estimate_windowed_bpm(y, sr, window_sec=8, hop_sec=2):
     return results
 
 
+# ─── Beat-Grid Stability ──────────────────────────────────────────────────
+
+# Thresholds for the three checks. Calibrated against a 5-set corpus
+# (Phase 5b backfill, 2026-05-28): see audio_field_audit.md and lessons.md
+# for the per-set distribution and the rationale behind the chosen numbers.
+IOI_FRACTIONAL_TOLERANCE = 0.15       # ±15% of median beat interval
+IOI_OUTLIER_PCT_WARN = 4.0            # corpus median sat near 2-3%; trips at 4% catch true jitter, not transitions
+OCTAVE_DOUBLING_PCT_WARN = 10.0       # corpus max <2%; threshold has clean headroom
+OCTAVE_DOUBLING_RUN_WARN = 3          # 60% of corpus trips; intentional — these are real librosa-lock events worth flagging
+METRONOMIC_DEVIATION_WARN_SEC = 60.0  # corpus range 23-54s for healthy sets (intentional tempo ramping); warn only on extreme outliers
+
+
+def validate_beat_grid(beat_times, bpm_timeline, global_bpm):
+    """Three observability checks on librosa's beat output.
+
+    NOT a verdict on tracker quality — `metronomic_deviation` measures
+    deviation from a constant-tempo extrapolation, which is non-zero for
+    healthy sets with intentional tempo ramps. Use as one signal among
+    several, not a pass/fail.
+
+    Non-blocking: returns a dict; the caller decides whether to warn.
+    """
+    bt = np.asarray(beat_times, dtype=np.float64)
+    n_beats = len(bt)
+
+    # ── Check A: IOI outlier rate ─────────────────────────────────────────
+    # Fractional tolerance avoids the np.std(iois) pitfall (the outliers
+    # inflate std, loosening the threshold against themselves).
+    if n_beats > 2:
+        iois = np.diff(bt)
+        median_ioi = float(np.median(iois))
+        tolerance = IOI_FRACTIONAL_TOLERANCE * median_ioi
+        ioi_outliers = int(np.sum(np.abs(iois - median_ioi) > tolerance))
+        ioi_outlier_pct = 100.0 * ioi_outliers / len(iois)
+    else:
+        median_ioi = 0.0
+        ioi_outliers = 0
+        ioi_outlier_pct = 0.0
+
+    # ── Check B: octave-doubling rate + max run length ────────────────────
+    # A 3-window run (24s at the analyzer's 8s window step) of locked-doubled
+    # tempo is qualitatively worse than 3 scattered windows; report both.
+    bpm_vals = np.array([b["bpm"] for b in bpm_timeline], dtype=np.float64)
+    if len(bpm_vals) and global_bpm > 0:
+        ratios = bpm_vals / global_bpm
+        doubling_mask = ((ratios >= 0.45) & (ratios <= 0.55)) | \
+                        ((ratios >= 1.9) & (ratios <= 2.1))
+        octave_doubling_pct = 100.0 * float(np.mean(doubling_mask))
+        # Longest run of consecutive True
+        run_max = 0
+        cur = 0
+        for v in doubling_mask:
+            if v:
+                cur += 1
+                if cur > run_max:
+                    run_max = cur
+            else:
+                cur = 0
+        octave_doubling_run_max = int(run_max)
+    else:
+        octave_doubling_pct = 0.0
+        octave_doubling_run_max = 0
+
+    # ── Check C: deviation from constant-tempo extrapolation ──────────────
+    # NOT "tracker drift": this is the distance between observed beats and
+    # an idealized metronomic grid built from global_bpm. Healthy DJ sets
+    # with intentional tempo ramps will register non-zero deviation here.
+    # Invalid if Check B flagged octave-locking (expected grid is built on
+    # wrong-tempo base; deviation becomes meaningless).
+    if n_beats > 1 and global_bpm > 0:
+        expected_times = bt[0] + np.arange(n_beats) * (60.0 / global_bpm)
+        deviation = bt - expected_times
+        metronomic_deviation_max_sec = float(np.max(np.abs(deviation)))
+        metronomic_deviation_final_sec = float(deviation[-1])
+    else:
+        metronomic_deviation_max_sec = 0.0
+        metronomic_deviation_final_sec = 0.0
+
+    metronomic_deviation_valid = octave_doubling_pct <= OCTAVE_DOUBLING_PCT_WARN
+
+    result = {
+        "ioi_median_sec": round(median_ioi, 5),
+        "ioi_outlier_count": ioi_outliers,
+        "ioi_outlier_pct": round(ioi_outlier_pct, 3),
+        "octave_doubling_pct": round(octave_doubling_pct, 3),
+        "octave_doubling_run_max": octave_doubling_run_max,
+        "metronomic_deviation_max_sec": round(metronomic_deviation_max_sec, 3),
+        "metronomic_deviation_final_sec": round(metronomic_deviation_final_sec, 3),
+        "metronomic_deviation_valid": metronomic_deviation_valid,
+    }
+
+    # ── Console warnings ───────────────────────────────────────────────────
+    if ioi_outlier_pct > IOI_OUTLIER_PCT_WARN:
+        print(f"    ⚠ beat-grid: IOI outliers {ioi_outlier_pct:.1f}% > {IOI_OUTLIER_PCT_WARN}% threshold")
+    if octave_doubling_pct > OCTAVE_DOUBLING_PCT_WARN:
+        print(f"    ⚠ beat-grid: octave-doubling {octave_doubling_pct:.1f}% > {OCTAVE_DOUBLING_PCT_WARN}% (windowed BPM locked at 0.5× or 2× global)")
+    if octave_doubling_run_max > OCTAVE_DOUBLING_RUN_WARN:
+        print(f"    ⚠ beat-grid: octave-doubling run of {octave_doubling_run_max} windows (~{octave_doubling_run_max*8}s of locked-wrong tempo)")
+    if metronomic_deviation_valid and metronomic_deviation_max_sec > METRONOMIC_DEVIATION_WARN_SEC:
+        print(f"    ⚠ beat-grid: metronomic deviation {metronomic_deviation_max_sec:.2f}s > {METRONOMIC_DEVIATION_WARN_SEC}s (set diverges from constant-tempo extrapolation; could be intentional tempo ramp or tracker failure)")
+
+    return result
+
+
 # ─── Beat Grid with Features ──────────────────────────────────────────────
 
 def compute_beat_features(y, sr, beat_times, S, freqs, hop_length):
@@ -656,6 +760,9 @@ def analyze_deep(audio_path, tracklist_path=None):
     key_timeline = detect_key_windowed(y, sr, window_sec=30, hop_sec=10)
     print(f"{len(key_timeline)} windows ({time.time() - t0:.1f}s)")
 
+    # ── Beat-grid stability checks ──
+    beat_quality = validate_beat_grid(beat_times, bpm_timeline, global_bpm)
+
     # ── Per-track analysis ──
     transitions = []
     if track_segments:
@@ -679,9 +786,36 @@ def analyze_deep(audio_path, tracklist_path=None):
         key_counts[label] = key_counts.get(label, 0) + 1
     global_key = max(key_counts, key=key_counts.get) if key_counts else "unknown"
 
+    # ── Persisted-output pruning (Phase 4) ──
+    # Internal analyzers (analyze_tracks_deep, analyze_transitions, beat
+    # aggregates) consume the full per-item field sets above. Only the
+    # JSON we ship needs to be slim. Drops are per audio_field_audit.md
+    # conservative drop list: zero-reader fields removed; latent signals
+    # (presence, brilliance, key_timeline, transitions) preserved.
+    persisted_multiband = [
+        {"time_sec": m["time_sec"],
+         "total_rms": m["total_rms"],
+         "sub_bass": m["sub_bass"],
+         "bass": m["bass"],
+         "presence": m["presence"],
+         "brilliance": m["brilliance"]}
+        for m in multiband_timeline
+    ]
+    persisted_hpss = [
+        {"time_sec": h["time_sec"],
+         "harmonic": h["harmonic"],
+         "percussive": h["percussive"]}
+        for h in hpss_timeline
+    ]
+    persisted_spectral = [
+        {"time_sec": s["time_sec"],
+         "centroid_hz": s["centroid_hz"]}
+        for s in spectral_timeline
+    ]
+
     # ── Assemble ──
     result = {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "analyzer": "dj-set-analyzer-deep",
         "file": {
             "path": str(audio_path.resolve()),
@@ -698,22 +832,30 @@ def analyze_deep(audio_path, tracklist_path=None):
             "onset_count": onsets["onset_count"],
             "onset_rate_per_sec": onsets["onset_rate_per_sec"],
         },
+        "beat_quality": beat_quality,
         "tracks": track_segments,
         "transitions": transitions,
         "beats": {
             "times_sec": [round(t, 4) for t in beat_times],
-            "features": beat_features,
+            # beats.features per-beat array dropped (Phase 4): consumed only by
+            # analyze_tracks_deep as transient input, aggregated into per-track
+            # stats and never read again.
         },
         "bpm_timeline": bpm_timeline,
-        "multiband_energy": multiband_timeline,
-        "hpss_timeline": hpss_timeline,
+        "multiband_energy": persisted_multiband,
+        "hpss_timeline": persisted_hpss,
         "onsets": {
             "count": onsets["onset_count"],
             "times_sec": onsets["onset_times_sec"],
-            "strength_envelope": onsets["strength_envelope"],
+            # onsets.strength_envelope dropped (Phase 4): ~1.7 MB per set,
+            # zero readers. The flat per-onset times list above is what gets
+            # consumed (Phase 2 onset_density).
         },
-        "chroma_timeline": chroma_timeline,
-        "spectral_timeline": spectral_timeline,
+        # chroma_timeline dropped (Phase 4): ~27% of file, persisted+aggregate
+        # only. chroma_dominant per track is preserved on each tracks[] entry
+        # via analyze_tracks_deep; full timeline is recomputable in ~10s/set
+        # from audio if future key-aware sequencing needs it.
+        "spectral_timeline": persisted_spectral,
         "key_timeline": key_timeline,
         "phrases": phrases,
     }

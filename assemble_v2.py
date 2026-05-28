@@ -135,6 +135,7 @@ class SceneClip:
     # From video analysis (measured)
     motion_mean: float       # optical flow mean
     motion_peak: float       # optical flow peak
+    motion_std: float        # optical flow std within scene — within-clip jitter
     brightness_mean: float   # 0-1
     contrast_mean: float     # 0-1
     dominant_colors: list    # list of {rgb, hex, percentage}
@@ -156,6 +157,9 @@ class SceneClip:
     # Enriched-file stem (sanitized) — the reliable key for CLIP/quality sidecars,
     # since source_name keeps the original (unsanitized) filename.
     enriched_stem: str = ""
+    # Percentile rank of motion_std across the full scene database (0-1).
+    # Populated post-build by _assign_motion_std_ranks; used by onset_match.
+    motion_std_rank: float = 0.5
 
 
 def compute_color_temperature(colors):
@@ -337,6 +341,7 @@ def build_scene_database(text_seconds=None):
                 duration_sec=dur,
                 motion_mean=float(np.mean(motion_vals)) if motion_vals else 0,
                 motion_peak=float(np.max(motion_peaks)) if motion_peaks else 0,
+                motion_std=float(np.std(motion_vals)) if motion_vals else 0,
                 brightness_mean=float(np.mean(bright_vals)) if bright_vals else 0.3,
                 contrast_mean=float(np.mean(contrast_vals)) if contrast_vals else 0.3,
                 dominant_colors=colors,
@@ -388,6 +393,14 @@ def build_scene_database(text_seconds=None):
                     flagged += 1
         print(f"    Quality scores: {len(scenes) - flagged}/{len(scenes)} clean, {flagged} flagged")
 
+    # Percentile-rank motion_std across the corpus so onset_match is
+    # dataset-relative, not tied to a hardcoded scale.
+    if scenes:
+        stds = np.array([c.motion_std for c in scenes])
+        ranks = stds.argsort().argsort().astype(np.float32) / max(len(stds) - 1, 1)
+        for c, r in zip(scenes, ranks):
+            c.motion_std_rank = float(r)
+
     return scenes
 
 
@@ -406,19 +419,45 @@ class PhraseFeatures:
     percussive_ratio: float # 0-1
     bpm: float
     track_title: str
+    # Percentile rank of onsets/sec within the current set (0-1).
+    # Independent of energy: distinguishes "lots of small percussive hits"
+    # from "one sustained pad" at the same loudness.
+    onset_density_rank: float = 0.5
+    # Average BPM-detection confidence over the phrase, normalized to [0, 1]
+    # using divisor calibrated from the actual bpm_timeline range (Phase 0).
+    bpm_confidence: float = 1.0
     lyrics_keywords: list = field(default_factory=list)  # keywords from vocals
     clip_text_embedding: np.ndarray = None  # CLIP text encoding of lyrics
 
 
 def extract_phrase_features(data, phrases):
-    """Extract audio features per phrase."""
+    """Extract audio features per phrase.
+
+    Back-compat: new fields (onset_density_rank, bpm_confidence) gracefully
+    default if a pre-2.1.0 .deep-analysis.json doesn't carry their sources.
+    """
     multiband = data["multiband_energy"]
     hpss = data["hpss_timeline"]
     spectral = data["spectral_timeline"]
     bpm_tl = data["bpm_timeline"]
     tracks = data.get("tracks", [])
 
-    results = []
+    # New in 2.1.0: onset times for per-phrase density, BPM confidence for
+    # weighting duration matching. Both fall back to neutral defaults if
+    # missing so old JSONs still score.
+    onset_times = np.array(data.get("onsets", {}).get("times_sec", []), dtype=np.float64)
+    global_bpm = float(data.get("global", {}).get("bpm", 128.0))
+    # Per-set 95th-pct of bpm confidence: divisor that normalizes typical
+    # strong-tempo material to ~1.0. Falls back to 8.0 (close to Phase 0
+    # observation of 8.28 on the smoke set) when the timeline lacks it.
+    conf_vals = [b.get("confidence") for b in bpm_tl if "confidence" in b]
+    conf_divisor = float(np.percentile(conf_vals, 95)) if conf_vals else 8.0
+    conf_divisor = max(conf_divisor, 0.1)  # guard against degenerate case
+
+    # First pass: collect raw onsets/sec per phrase so we can percentile-rank.
+    raw_densities: list[float] = []
+    phrase_basics: list[dict] = []
+
     for phrase in phrases:
         start, end = phrase["start_sec"], phrase["end_sec"]
 
@@ -429,6 +468,33 @@ def extract_phrase_features(data, phrases):
 
         if not mb:
             continue
+
+        # Extend phrase window by one beat: detect_phrases sets end_sec to the
+        # last beat's *timestamp*, undershooting actual phrase span by ~1 beat.
+        phrase_end_effective = end + 60.0 / global_bpm
+        n_onsets = (np.searchsorted(onset_times, phrase_end_effective)
+                    - np.searchsorted(onset_times, start)) if len(onset_times) else 0
+        phrase_dur = max(phrase_end_effective - start, 1e-6)
+        raw_densities.append(float(n_onsets) / phrase_dur)
+        phrase_basics.append({
+            "phrase": phrase, "mb": mb, "hp": hp, "sp": sp, "bp": bp,
+            "start": start, "end": end,
+        })
+
+    # Percentile-rank onset density within the set. Per-set normalization
+    # handles tempo-sensitivity (174 BPM DnB vs 92 BPM hip-hop both produce
+    # valid "busy" rankings) and is robust to hi-hat-roll outliers.
+    if raw_densities:
+        ranks_arr = np.array(raw_densities).argsort().argsort().astype(np.float32)
+        density_ranks = (ranks_arr / max(len(ranks_arr) - 1, 1)).tolist()
+    else:
+        density_ranks = []
+
+    results = []
+    for basic, dens_rank in zip(phrase_basics, density_ranks):
+        phrase = basic["phrase"]
+        start, end = basic["start"], basic["end"]
+        mb, hp, sp, bp = basic["mb"], basic["hp"], basic["sp"], basic["bp"]
 
         rms = [m["total_rms"] for m in mb]
         bass = [m["sub_bass"] + m["bass"] for m in mb]
@@ -453,6 +519,15 @@ def extract_phrase_features(data, phrases):
 
         bpm = np.mean([b["bpm"] for b in bp]) if bp else 128
 
+        # BPM-detection confidence over this phrase. Average then normalize
+        # via per-set 95th-pct divisor (Phase 0 calibration). Falls back to
+        # 1.0 (max) when the timeline lacks confidence (old schema).
+        conf_present = [b.get("confidence") for b in bp if "confidence" in b]
+        if conf_present:
+            bpm_conf = min(float(np.mean(conf_present)) / conf_divisor, 1.0)
+        else:
+            bpm_conf = 1.0
+
         track = ""
         for tr in tracks:
             if tr["start_sec"] <= start < tr["end_sec"]:
@@ -470,6 +545,8 @@ def extract_phrase_features(data, phrases):
             percussive_ratio=float(perc_ratio),
             bpm=float(bpm),
             track_title=track,
+            onset_density_rank=float(dens_rank),
+            bpm_confidence=float(bpm_conf),
         ))
 
     return results
@@ -519,6 +596,12 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
 
     # 6. Contrast match (percussive → high contrast)
     contrast_match = 1.0 - abs(clip.contrast_mean - phrase.percussive_ratio)
+
+    # 6b. Onset-density ↔ motion-jitter match. Both sides are percentile-ranked
+    # within their respective pools (phrases-per-set, scenes-per-corpus) so the
+    # comparison is scale-free: busy phrases prefer high-jitter clips
+    # regardless of absolute tempo or motion magnitude. Orthogonal to energy.
+    onset_match = 1.0 - abs(clip.motion_std_rank - phrase.onset_density_rank)
 
     # 7. Semantic bonus
     semantic_bonus = 0.0
@@ -579,14 +662,20 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
     #     A dead scene (black/blown/frozen) sinks ~3 pts but stays selectable.
     quality_penalty = -(1.0 - clip.quality_score) * QUALITY_PENALTY_WEIGHT
 
+    # Soft de-emphasis of duration matching when the per-phrase BPM detection
+    # is unconfident (breakdowns, intros/outros, transitions). At zero
+    # confidence dur_match retains 60% of its weight — mild, not "near-disable."
+    dur_confidence_weight = 0.6 + 0.4 * phrase.bpm_confidence
+
     # Weighted combination
     score = (
         motion_match * 1.0 +
         bright_match * 0.8 +
         temp_match * 0.7 +
-        dur_match * 0.9 +
+        dur_match * 0.9 * dur_confidence_weight +
         sat_match * 0.5 +
         contrast_match * 0.5 +
+        onset_match * 0.4 +
         semantic_bonus +
         style_bonus +
         lyrics_bonus +
