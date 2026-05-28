@@ -182,32 +182,73 @@ Two scanners exist:
 
 ### Deep Audio Analysis (`.deep-analysis.json`)
 
-Multi-dimensional audio feature extraction at 8 Hz:
+Schema **2.1.0**. Multi-dimensional audio feature extraction at 8 Hz. The
+per-field contract (which fields are persisted, which are consumed, which are
+strategic latent signals) is the authoritative reference for what stays in
+this file: see [`audio_field_audit.md`](audio_field_audit.md).
 
 ```
 {
+  "schema_version": "2.1.0",
+  "analyzer": "dj-set-analyzer-deep",
+  "file": { "name", "path", "duration_sec", "sample_rate" },
+  "global": { "bpm", "bpm_range", "beat_count", "key", "onset_count", "onset_rate_per_sec" },
+  "beat_quality": {
+    "ioi_median_sec",
+    "ioi_outlier_count", "ioi_outlier_pct",
+    "octave_doubling_pct", "octave_doubling_run_max",
+    "metronomic_deviation_max_sec", "metronomic_deviation_final_sec",
+    "metronomic_deviation_valid"
+  },
   "tracks": [
     {
       "title", "start_sec", "end_sec",
-      "bpm": { "mean", "min", "max" },
+      "bpm": { "mean", "min", "max", "std" },
       "energy": { "mean", "peak", "std" },
       "bands": { "sub_bass", "bass", "low_mid", "mid", "high_mid", "presence", "brilliance" },
       "harmonic_percussive": { "harmonic_mean", "percussive_mean", "balance" },
-      "spectral": { "centroid_mean_hz", "flatness_mean", "brightness", "texture" }
+      "spectral": { "centroid_mean_hz", "flatness_mean", "brightness", "texture" },
+      "chroma_dominant"
     }
   ],
-  "multiband_energy": [ { "time_sec", "sub_bass", "bass", ..., "total_rms" } ],
+  "transitions": [ { "from_track", "to_track", "boundary_sec", "energy_*", "bass_*", "bpm_*", "hp_ratio_*", "flux_*", "type" } ],
+  "beats": { "times_sec": [...] },
+  "bpm_timeline": [ { "time_sec", "bpm", "confidence" } ],
+  "multiband_energy": [ { "time_sec", "total_rms", "sub_bass", "bass", "presence", "brilliance" } ],
   "hpss_timeline": [ { "time_sec", "harmonic", "percussive" } ],
-  "onsets": [ { "time_sec", "strength" } ],
-  "spectral_timeline": [ { "time_sec", "centroid_hz", "flux" } ],
-  "bpm_timeline": [ { "time_sec", "bpm" } ],
+  "onsets": { "count", "times_sec": [...] },
+  "spectral_timeline": [ { "time_sec", "centroid_hz" } ],
+  "key_timeline": [ { "time_sec", "key", "mode", "label", "confidence" } ],
   "phrases": {
-    "four_bar": [ { "start_sec", "end_sec", "beat_count", "energy_mean", "energy_shape" } ],
+    "four_bar": [ { "start_sec", "end_sec", "beat_count", "energy_mean", "energy_peak", "energy_shape" } ],
     "eight_bar": [...],
     "sixteen_bar": [...]
   }
 }
 ```
+
+**Schema 2.1.0 vs 2.0.0:** the major timelines dropped per-item fields with
+no current reader to cut JSON size ~64% (37 → 13 MB on a 70-min set):
+`chroma_timeline` (full), `multiband.{low_mid, mid, high_mid}`,
+`spectral.{bandwidth_hz, flatness, rolloff_hz, contrast_mean, flux}`,
+`hpss_timeline.hp_ratio`, `onsets.strength_envelope`, `beats.features`. Internal
+aggregators (`analyze_tracks_deep`, `analyze_transitions`) still receive the
+full per-item field set during compute; pruning happens only at result-dict
+assembly. Kept as latent signals for future key/transition-aware sequencing:
+`multiband.presence/brilliance`, `key_timeline`, `transitions[]`.
+
+**`beat_quality`** is non-blocking observability on `librosa.beat.beat_track`:
+IOI outlier rate (±15% fractional tolerance vs median), octave-doubling
+percent + max consecutive-window run, metronomic deviation (max + final
+absolute deviation from a constant-tempo extrapolation, with a `_valid`
+guard set false when octave-doubling exceeds 10%). The `metronomic_deviation`
+metric is *not* tracker drift — it measures distance from a synthetic
+metronome built on `global_bpm`, which legitimately accumulates on long DJ
+sets with tempo ramping. See `lessons.md` under "# Audio side".
+
+**`bpm_timeline.confidence`** is consumed by the assembler (see scoring table
+below). Pre-2.1.0 files lack it; assembler's `.get()` defaults preserve
+existing behavior on those.
 
 ### Lyrics (`.lyrics.json`)
 
@@ -266,6 +307,11 @@ The `phrase_lyrics` index maps phrase indices to keyword lists, consumed directl
    - Audio brightness (spectral centroid)
    - Percussive ratio (from HPSS)
    - BPM, energy shape
+   - **`onset_density_rank`** — onsets/sec within the phrase window (corrected
+     to extend by one beat past the last beat-time so the denominator is the
+     actual phrase span), then percentile-ranked across all phrases in the set
+   - **`bpm_confidence`** — per-phrase average of `bpm_timeline.confidence`,
+     normalized by the per-set 95th-percentile divisor (avoids hardcoded scales)
 
 ### Adaptive Phrase Merging
 
@@ -280,22 +326,42 @@ This produces longer clip holds for breakdowns and ambient passages, while keepi
 
 ### Scoring (per scene vs. per phrase)
 
-Each scene is scored against each phrase. The first six are weighted match terms; the rest are additive bonuses/penalties (see `score_scene` in `assemble_v2.py`):
+Each scene is scored against each phrase. The first six-and-a-half are weighted
+match terms; the rest are additive bonuses/penalties (see `score_scene` in
+`assemble_v2.py`):
 
 | # | Dimension | Weight | Logic |
 |---|-----------|--------|-------|
 | 1 | Motion-energy | 1.0 | Visual motion ↔ audio energy |
 | 2 | Brightness | 0.8 | Visual brightness ↔ spectral centroid |
 | 3 | Color temperature | 0.7 | Warm colors ↔ bass-heavy audio |
-| 4 | Duration fit | 0.9 | Scene length ↔ target (3-15s based on energy) |
+| 4 | Duration fit | 0.9 × `(0.6 + 0.4 × bpm_confidence)` | Scene length ↔ target (3-15s based on energy), **soft-de-emphasized** on low-confidence BPM phrases (breakdowns / intros / transitions). At zero confidence, term retains 60% weight — mild, not "disable". |
 | 5 | Saturation | 0.5 | Color saturation ↔ energy level |
 | 6 | Contrast | 0.5 | Visual contrast ↔ percussive ratio |
+| 6b | **Onset-density ↔ motion-jitter** | 0.4 | Per-set percentile-ranked `onsets/sec` per phrase × per-corpus percentile-ranked `motion_std` per clip. Orthogonal to energy: distinguishes lots-of-small-percussion from one-sustained-pad at the same loudness. Both sides percentile-ranked so the match is scale-free (insensitive to BPM regime or motion magnitude). |
 | 7 | Semantic | 0.1-0.4 | Mood energy match (calm↔calm, intense↔intense) |
 | 8 | Style hints | variable | Per-set creative direction bonus/penalty |
 | 9 | Lyrics match | 0.25/match | Lyric keywords matched against clip content_tags (cap 0.8) |
 | 10 | Loopability | +0.15 | Prefer loopable clips for phrases longer than the scene |
 | 11 | CLIP similarity | ×0.6 | Lyric-text embedding ↔ scene visual embedding (cosine) |
 | 12 | Scene quality | ×3.0 | **Non-destructive** soft penalty `-(1-quality_score)*3` — a dead scene (black/blown/frozen) sinks ~3 pts but is never excluded outright |
+
+**`bpm_confidence`** is the per-phrase average of `bpm_timeline.confidence`
+divided by the set's 95th-percentile (avoids hardcoded-scale drift across
+heterogeneous sets). Falls back to `1.0` when reading a pre-2.1.0 JSON without
+a `confidence` field (preserves prior behavior).
+
+**`motion_std`** is added to `SceneClip` (per-scene `np.std(motion_vals)` over
+the optical-flow timeline) and percentile-ranked across the full scene database
+post-build. Stored as `motion_std_rank` on each clip; the comparison against
+phrase-side `onset_density_rank` is a pure rank-vs-rank distance — no scalar
+scales involved.
+
+New scoring components land at <0.5 weight or as multipliers on existing terms
+by convention. The weights here co-evolved with the diversity windows in
+`select_clips` and the `MAX_SOURCE_USAGE_MULT` cap; a primary-axis weight (1.0+)
+on a new dimension would destabilize that balance. See `lessons.md` under
+"# Audio side" for the rationale.
 
 ### Diversity Enforcement
 
