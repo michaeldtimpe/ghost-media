@@ -1,0 +1,13 @@
+{
+  "name": "hybrid-V5-cascade",
+  "mode": "trigger-replace",
+  "base": "mlx-qwen7b",
+  "escalation": "mlx-internvl",
+  "trigger": {"any_of": [
+    {"field": "parse_ok", "op": "==", "value": false},
+    {"field": "n_snaps", "op": ">=", "value": 2},
+    {"field": "visual_style", "op": "==", "value": "unclear"},
+    {"field": "description_len", "op": "<", "value": 150}
+  ]},
+  "description": "Canonical multi-trigger escalation cascade: escalate on parse-fail, deep snap, unclear style, or too-short description."
+}

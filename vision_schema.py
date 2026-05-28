@@ -49,11 +49,24 @@ SCENE_PROMPT = """Analyze this video frame for use in an LLM-driven visual gener
     "energy": "calm | building | moderate | intense | chaotic | unclear"
   },
   "transition_anchors": ["list of visual elements that could serve as transition points"],
-  "content_tags": ["list of descriptive tags for searchability"]
+  "content_tags": ["list of descriptive tags for searchability"],
+  "has_english_text": true or false,
+  "text_content": "verbatim English text visible in the frame, or an empty string"
 }
 
 Pick exactly one option for each enum field. If a frame genuinely doesn't fit any
 option, use "unclear" rather than inventing a new value.
+
+For has_english_text: English text means Latin-alphabet words, letters, or numbers
+used as labels, titles, watermarks, credits, subtitles, or logos. Japanese, Chinese,
+Korean, or other non-Latin script does NOT count. Abstract shapes that merely
+resemble letters do NOT count, and single isolated letters used as design elements
+do NOT count. Set has_english_text to true only when readable English is present,
+and copy that text verbatim into text_content; otherwise false with an empty string.
+
+Be specific and discriminative in visual_description and content_tags — describe what
+makes THIS frame distinct (concrete shapes, colors, motion), not generic filler like
+"abstract colorful pattern."
 
 Return ONLY valid JSON, no markdown or explanation."""
 
@@ -83,6 +96,9 @@ ENUMS = {
 
 # Dotted paths that should always be flat lists of strings.
 LIST_FIELDS = ("color_palette.dominant_colors", "transition_anchors", "content_tags")
+
+# Dotted paths that must be strict booleans (the folded-in text-detection flag).
+BOOL_FIELDS = ("has_english_text",)
 
 # Reserved keys added by the pipeline; downstream consumers must ignore these
 # (the assembler reads only named fields, so it already does).
@@ -196,6 +212,34 @@ def _coerce_list(raw):
     return out
 
 
+_BOOL_TRUE = {"true", "yes", "y", "1", "t"}
+_BOOL_FALSE = {"false", "no", "n", "0", "f", ""}
+
+
+def _coerce_bool(raw):
+    """Coerce a model value to a strict bool. Returns ``(value, compliant)``.
+
+    ``compliant`` is False when the model returned something that is not a
+    recognizable boolean (a freeform sentence, null, a number other than 0/1).
+    In that case we default to ``False`` — conservative: never claim text is
+    present on a guess — but flag the non-compliance so the bench can disqualify
+    a chronically non-compliant engine from the text task regardless of its prose.
+    """
+    if isinstance(raw, bool):
+        return raw, True
+    if isinstance(raw, int) and raw in (0, 1):  # bool already handled above
+        return bool(raw), True
+    if isinstance(raw, float) and raw in (0.0, 1.0):
+        return bool(raw), True
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in _BOOL_TRUE:
+            return True, True
+        if s in _BOOL_FALSE:
+            return False, True
+    return False, False
+
+
 def normalize_analysis(parsed):
     """Validate + normalize one parsed frame analysis.
 
@@ -232,6 +276,19 @@ def normalize_analysis(parsed):
         if coerced != raw:
             notes[path] = {"raw": raw, "normalized": coerced}
             _set_path(clean, path, coerced)
+
+    # Bool fields (the folded-in text-detection flag)
+    for path in BOOL_FIELDS:
+        raw, present = _get_path(clean, path)
+        if not present:
+            continue
+        value, compliant = _coerce_bool(raw)
+        if not compliant or value is not raw:
+            note = {"raw": raw, "normalized": value}
+            if not compliant:
+                note["noncompliant"] = True
+            notes[path] = note
+            _set_path(clean, path, value)
 
     if notes:
         clean["_validation"] = notes

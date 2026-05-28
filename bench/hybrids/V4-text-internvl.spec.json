@@ -1,0 +1,8 @@
+{
+  "name": "hybrid-V4-text-internvl",
+  "mode": "trigger-replace",
+  "base": "mlx-qwen7b",
+  "escalation": "mlx-internvl",
+  "trigger": {"field": "has_english_text", "op": "==", "value": true},
+  "description": "Route text-flagged frames to InternVL (the OCR specialist). Tests OCR-specialist-on-its-lane."
+}

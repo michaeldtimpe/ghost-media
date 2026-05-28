@@ -1,0 +1,8 @@
+{
+  "name": "hybrid-V3-snap-internvl",
+  "mode": "trigger-replace",
+  "base": "mlx-qwen7b",
+  "escalation": "mlx-internvl",
+  "trigger": {"field": "n_snaps", "op": ">=", "value": 1},
+  "description": "Swap to InternVL whenever the base needed any enum-snap (schema cleanup hypothesis)."
+}

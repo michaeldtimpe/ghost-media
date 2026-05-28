@@ -1,0 +1,11 @@
+{
+  "name": "hybrid-V2-err-qwen32b",
+  "mode": "trigger-replace",
+  "base": "mlx-qwen7b",
+  "escalation": "mlx-qwen32b",
+  "trigger": {"any_of": [
+    {"field": "error", "op": "truthy"},
+    {"field": "parse_ok", "op": "==", "value": false}
+  ]},
+  "description": "Same as V1 but escalation = qwen32b. A/B test for which escalation target rescues errors better."
+}

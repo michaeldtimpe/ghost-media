@@ -1,0 +1,9 @@
+{
+  "name": "hybrid-V6-desc-internvl",
+  "mode": "override",
+  "base": "mlx-qwen7b",
+  "overrides": {
+    "description": {"op": "swap", "from": "mlx-internvl"}
+  },
+  "description": "Use InternVL's terse description; everything else from qwen7b. Tests the verbosity-anti-discriminative hypothesis."
+}

@@ -34,6 +34,14 @@ demucs_output/
 text_flags/
 vision_contest/
 
+# Bake-off run artifacts (extracted frames, per-engine raw, scores, manifests, state).
+# The bench/ code and any hand-labeled bench/groundtruth/*.json are kept.
+bench/results/
+
+# Local copies of source footage staged for fast benchmarking (also covered by the
+# media extensions above, but listed explicitly).
+raw_footage/
+
 # Manifests / audit summaries
 _manifest.json
 _audit_summary.json

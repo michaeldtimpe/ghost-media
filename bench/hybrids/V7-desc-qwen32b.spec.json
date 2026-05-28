@@ -1,0 +1,9 @@
+{
+  "name": "hybrid-V7-desc-qwen32b",
+  "mode": "override",
+  "base": "mlx-qwen7b",
+  "overrides": {
+    "description": {"op": "swap", "from": "mlx-qwen32b"}
+  },
+  "description": "Direct test of the user's '32B for descriptions, 7B for everything else' hypothesis. Verbose 32B description, qwen7b's tags/style/has_text."
+}

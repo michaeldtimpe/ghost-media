@@ -91,8 +91,77 @@ def main():
     check("comma-string tags → list", clean_an["content_tags"] == ["fire", "sky", "love"])
     check("corrections recorded in _validation", "_validation" in clean_an and bool(notes))
 
+    bench_checks(rng)
+
     print("  " + "─" * 60)
     print("  ALL CHECKS PASSED\n")
+
+
+def bench_checks(rng):
+    """Bake-off harness unit checks (skip the torch-dependent parts if unavailable)."""
+    print("\n  BENCH HARNESS")
+    print("  " + "─" * 60)
+
+    # keys: determinism + collision abort
+    from bench import keys
+    check("canonical_key is deterministic + path-sensitive",
+          keys.canonical_key("/a/x.mp4") == keys.canonical_key("/a/x.mp4")
+          != keys.canonical_key("/a/y.mp4"))
+    try:
+        keys.build_registry([("A.analysis.json", "/s/a.mp4"),
+                             ("A.analysis.json", "/s/b.mp4")])
+        check("stem collision aborts", False)
+    except keys.StemCollisionError:
+        check("stem collision aborts", True)
+
+    # schema: folded-in text-detection bool
+    from vision_schema import _coerce_bool, normalize_analysis
+    check("_coerce_bool compliant", _coerce_bool("yes") == (True, True)
+          and _coerce_bool(False) == (False, True))
+    check("_coerce_bool flags non-compliance", _coerce_bool("there is text") == (False, False))
+    clean, notes = normalize_analysis({"has_english_text": "true"})
+    check("has_english_text coerced to bool", clean["has_english_text"] is True)
+    clean, notes = normalize_analysis({"has_english_text": "a whole sentence"})
+    check("non-bool text flag → False + noncompliant",
+          clean["has_english_text"] is False and notes["has_english_text"]["noncompliant"])
+
+    # metrics (numpy-only)
+    from bench import metrics as Mx
+    d = 16
+    imgs = [Mx._norm(rng.standard_normal(d)) for _ in range(6)]
+    kk = ["A", "A", "A", "B", "B", "B"]
+    import numpy as _np
+    perfect = Mx.retrieval_metrics(imgs, kk, imgs, kk, _np.arange(6), within=True)
+    check("retrieval: perfect query → R@1=1.0", perfect["recall_at_1"] == 1.0)
+    garbage = [Mx._norm(_np.ones(d)) for _ in range(6)]
+    g = Mx.retrieval_metrics(garbage, kk, imgs, kk, _np.arange(6), within=True)
+    check("retrieval: identical queries → R@1<1.0", g["recall_at_1"] < 1.0)
+    adj_same = Mx.adjacent_discriminability({"A": [imgs[0], imgs[0]]})
+    adj_diff = Mx.adjacent_discriminability({"A": [imgs[0], imgs[1]]})
+    check("adjacent: identical → collapse=1.0", adj_same["semantic_collapse_rate"] == 1.0)
+    check("adjacent: distinct > identical",
+          adj_diff["adjacent_discriminability"] > adj_same["adjacent_discriminability"])
+    prf = Mx.text_prf({"a": True, "b": False}, {"a": True, "b": True})
+    check("text_prf tp/fn", prf["tp"] == 1 and prf["fn"] == 1)
+    same = Mx.tag_stats([["abstract"]] * 8)
+    uniq = Mx.tag_stats([[f"t{i}"] for i in range(8)])
+    check("tag entropy: unique > repeated", uniq["tag_entropy"] > same["tag_entropy"])
+    sb = {"roundtrip_within": {"recall_at_1": 0.8}, "coverage": {"coverage": 0.9},
+          "text": {"f1": 0.7}, "adjacent": {"adjacent_discriminability": 0.5}}
+    check("composite blend", abs(Mx.composite_score(sb)
+          - (0.4 * 0.8 + 0.25 * 0.9 + 0.2 * 0.7 + 0.15 * 0.5)) < 1e-9)
+
+    # sampler clustering (needs torch via clip_utils; skip if unavailable)
+    try:
+        from bench import sampler
+    except Exception as e:
+        print(f"  ~ sampler clustering skipped (torch unavailable: {str(e)[:40]})")
+        return
+    a = _np.array([1.0, 0.0, 0.0]); b = _np.array([0.0, 1.0, 0.0])
+    groups = sampler.cluster_embeddings([a, a.copy(), b], threshold=0.9)
+    check("cluster: 2 distinct + 1 dup → 2 clusters", len(groups) == 2)
+    check("medoid returns a member index",
+          sampler._medoid([0, 1, 2], [a, a.copy(), b]) in (0, 1, 2))
 
 
 if __name__ == "__main__":
