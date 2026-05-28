@@ -1,5 +1,26 @@
 # Lessons
 
+## Offsite rollback artefacts (not in repo)
+
+Two arcs produced sizeable comparative datasets we kept as research assets
+rather than rollback insurance:
+
+- `~/backups/ghost-media/pre-mlx-corpus-2026-05-28.tar.gz` (5.0 MB compressed,
+  53 files) — pre-MLX `.enriched.pre-mlx.json` from before the full-corpus
+  vision rescan. Pair (old-captions × new-captions × same-scenes) is useful
+  for retrieval-drift studies, caption-style A/B, future judge benchmarks.
+  Reversal cost if this tarball is also lost: **~37 h on M5** to re-run the
+  rescan from scratch (full-corpus, 18,397 plan states, 7.5% InternVL
+  cascade ratio).
+
+- `~/backups/ghost-media/{set}.pre-audio-uplift.deep-analysis.json` × 5 sets
+  (~37 MB each) — pre-2.1.0 deep-analysis JSONs from before the rigor uplift.
+  Has the full `chroma_timeline`, `multiband` mids, spectral extras, per-beat
+  `beats.features`, and `onsets.strength_envelope` that the 2.1.0 schema
+  drops. Reversal cost: ~5 min/set to re-run `analyze_dj_set_deep.py` on the
+  original audio (audio still on archive drive).
+
+
 Engineering lessons from ghost-media, with an emphasis on the round of work that
 imported ideas from the blog post *"I indexed a year of video locally"*
 (simbastack.com) — what transferred, what was already solved, and the bugs and
