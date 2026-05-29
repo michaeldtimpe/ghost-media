@@ -105,10 +105,19 @@ embeddings. `--diversity` applies MMR suppression so near-identical scenes don't
 ### Tuning clip selection
 
 All parameters are constants at the top of `assemble_v2.py`:
-- **Diversity**: `VARIETY_WINDOW`, `SCENE_VARIETY_WINDOW`, `REUSE_PENALTY`, `MAX_SOURCE_USAGE_MULT`, `TOP_CANDIDATES`
+- **Hard-block diversity**: `VARIETY_WINDOW`, `SCENE_VARIETY_WINDOW`, `MAX_SOURCE_USAGE_MULT`, `REUSE_PENALTY`, `TOP_CANDIDATES`
+- **Perceptual MMR rerank**: `MMR_LAMBDA` (0.5), `MMR_POOL` (80), `MMR_RECENT_WINDOW` (10), `MMR_DIAGNOSTIC_PHRASES` (10)
+- **Near-duplicate hard skip threshold**: `NEAR_DUP_SIM` (0.97, in `flag_quality.py`)
 - **Phrase merging**: `MERGE_ENERGY_THRESHOLD`, `MERGE_ENERGY_DELTA`, `MAX_MERGED_DURATION`
 - **Scene filtering**: `MIN_SCENE_DURATION`, `MAX_SCENE_DURATION`
 - **Per-set creative direction**: `style_hints` dict in `SET_CONFIGS`
+
+The MMR pool ceiling matters more than `MMR_LAMBDA` for tuning — see `lessons.md` "# Selection side". The diagnostic log at `bench/mmr_diagnostics.log` (gitignored) captures per-candidate scoring + cosine penalty for the first 10 phrases of each run; spot-check that before changing constants.
+
+### Auditing perceptual diversity
+
+- `scripts/audit_repeats.py` — Phase 0 forensic audit. Classifies the chronological selection against three substrates: literal `(source, scene_index)` repeats (would indicate constraint-code bug), within-source perceptual (cosine ≥ 0.95 within 5 phrases), cross-source perceptual (cosine ≥ 0.90 within 5 phrases). Emits a histogram across (window × threshold) cells. Use to confirm a "constant repeats" complaint *before* designing a fix.
+- `scripts/capture_perceptual_baseline.py` — selection-only run (no ffmpeg), dumps `compute_perceptual_diversity()` metrics for one or more sets to a committed JSON file. ~30s/set vs ~12 min full render; useful for tuning. Selection-only SKIPS lyrics-CLIP scoring, so use the assembler's `[4b/5]` block from a full render for the deliverable acceptance numbers.
 
 ### Tuning style hints
 
@@ -151,6 +160,8 @@ Each set in `SET_CONFIGS` can have a `style_hints` dict:
 - **Whisper hallucinations** — common on instrumental sections; the extractor filters these (e.g. "thank you for watching", "[music]"). If you see bad lyrics data, check the hallucination patterns in `extract_lyrics.py`
 - **`.deep-analysis.json` schema 2.1.0** carries a non-blocking `beat_quality` block with IOI outliers, octave-doubling rate + max run length, and metronomic deviation. Warnings print on the analyzer console but the file always writes; assembler reads `bpm_timeline.confidence` (with `.get()` fallback for pre-2.1.0 files).
 - **`assemble_v2.py` scoring constants are tuning-sensitive** — the weights in `score_scene` co-evolved with the diversity windows. Land new scoring components at <0.5 weight or as multipliers on existing terms by convention.
+- **Diversity is now perceptual, not just metadata** — `select_clips` applies a near_dup hard skip (Phase A) AND an MMR re-rank over a top-80 score pool (Phase C). Metadata-level windows (`VARIETY_WINDOW`, `SCENE_VARIETY_WINDOW`) are still in place; MMR closes the gap when "different filename" still meant "same image." See `lessons.md` "# Selection side".
+- **Hash-suffix duplicate filenames are silent corpus poisoning** — analyzer reruns can produce both `X.webm` and `X-abc123.webm` as separate "sources." Audit periodically with `scripts/audit_repeats.py` or grep `enriched/` for paired `-[a-f0-9]{5,6}` suffixes. Dedup offsite (don't just rm without backup).
 
 ## Dependencies
 

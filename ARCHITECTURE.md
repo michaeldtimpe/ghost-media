@@ -365,13 +365,56 @@ on a new dimension would destabilize that balance. See `lessons.md` under
 
 ### Diversity Enforcement
 
-| Mechanism | Value | Effect |
+`select_clips` (`assemble_v2.py:742+`) layers metadata-level constraints
+(hard blocks on filename + scene index) with perceptual-level constraints
+(near-duplicate exclusion + MMR re-ranking in CLIP space).
+
+| Mechanism | Constant | Effect |
 |-----------|-------|--------|
-| Source variety window | 15 | Hard block: same source video can't repeat within 15 clips |
-| Scene variety window | 30 | Hard block: exact same scene can't repeat within 30 clips |
-| Reuse penalty | 0.5 | Score *= 1/(1 + 0.5 * uses) — steep diminishing returns |
-| Usage ceiling | 2.0x | No source exceeds (total_clips / n_sources) * 2 uses |
-| Random pool | 20 | Weighted random from top 20 candidates (not top 1) |
+| Near-duplicate hard skip | `NEAR_DUP_SIM = 0.97` (in `flag_quality.py`) | Hard block: skip clips flagged `near_dup` (CLIP cosine ≥ 0.97 vs an earlier kept scene in the same source). Participates in the fallback cascade alongside `VARIETY_WINDOW` — both are perceptual-diversity constraints. |
+| Source variety window | `VARIETY_WINDOW = 15` | Hard block: same source video can't repeat within 15 clips |
+| Scene variety window | `SCENE_VARIETY_WINDOW = 30` | Hard block: exact same `(source, scene_index)` can't repeat within 30 clips |
+| Usage ceiling | `MAX_SOURCE_USAGE_MULT = 2.0` | Cap: no source exceeds `(total_clips / n_sources) * 2` uses |
+| Reuse penalty | `REUSE_PENALTY = 0.5` | Soft: `score *= 1/(1 + 0.5 * uses)` — steep diminishing returns |
+| MMR pool size | `MMR_POOL = 80` | After hard blocks + scoring, top-80 by raw score enter MMR re-rank. Tuning showed pool ceiling matters more than λ — a narrower pool of 30 left one validation set worse off because all top-scoring candidates were perceptually similar. |
+| MMR diversity weight | `MMR_LAMBDA = 0.5` | `mmr_score = norm(raw) − λ × max_cosine(candidate, last MMR_RECENT_WINDOW selected)` |
+| MMR recent window | `MMR_RECENT_WINDOW = 10` | Compare each candidate against the last 10 picked clips |
+| Random pool | `TOP_CANDIDATES = 20` | Weighted random from top-20 of the MMR-reranked list (not top 1) |
+
+**Fallback cascade** — when hard blocks empty the candidate pool, `select_clips`
+relaxes constraints progressively, in three levels:
+
+1. Drop perceptual-diversity blocks (`near_dup` hard skip + `VARIETY_WINDOW`)
+   together; keep scene dedup + usage ceiling.
+2. Drop scene dedup; keep usage ceiling.
+3. Drop usage ceiling — last resort. Should essentially never fire on a healthy
+   corpus.
+
+**MMR re-rank** prevents perceptually-similar clips from sitting back-to-back
+even when their `source_name` and `scene_index` differ. Pre-MMR, the assembler
+log could report "40/40 sources used" while the viewer still perceived
+constant repeats; MMR closes that gap by reading the CLIP embedding space the
+scoring stack already loaded into each `SceneClip.clip_embedding`. Per-phrase
+min-max score normalization is mandatory — raw scores vary in magnitude per
+phrase, which would otherwise make `λ` brittle. See `lessons.md` "# Selection
+side" for the empirical rationale (the pool ceiling matters more than λ).
+
+**Diagnostic log** at `bench/mmr_diagnostics.log` captures per-candidate
+`(raw_score, norm_score, max_recent_cosine, mmr_score)` for the first
+`MMR_DIAGNOSTIC_PHRASES = 10` phrases of each run. Gitignored runtime artefact.
+
+### Perceptual Diversity Observability
+
+After `select_clips` returns, `compute_perceptual_diversity()` measures the
+final ordered selection and emits a `[4b/5] Perceptual diversity` block:
+
+- Consecutive-pair CLIP cosine — mean and median across `selection[i] ↔ selection[i+1]`
+- Close-pair counts: `pairs ≥ 0.85 / 0.80 / 0.75 within 5 phrases`
+- Close-pair counts: `pairs ≥ 0.90 / 0.85 within 30 phrases`
+
+These ride with every assembler run going forward. Baselines for the validation
+sets are committed at `bench/perceptual_baselines.json`; post-uplift results at
+`bench/perceptual_results.json`.
 
 ### Video Assembly
 

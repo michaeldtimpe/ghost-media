@@ -21,6 +21,17 @@ Notably, `assemble_v2.py` now reads `bpm_timeline.confidence` and `onsets.times_
 from the deep-analysis schema 2.1.0 — both fields were already produced by the
 analyzer, the uplift just wired them into scoring.
 
+A subsequent perceptual-diversity uplift landed as **PR #5** (`03922a9`). The
+forensic Phase 0 audit (`scripts/audit_repeats.py`) identified **two hash-suffix
+duplicate file pairs** in the enriched corpus (`isshin REEL 2022.webm` ↔
+`isshin REEL 2022-d557b.webm` and same for 2024) producing cosine-1.000 picks
+back-to-back. **Active corpus is now 52 enriched files (was 54)** — the two
+duplicate pairs are archived offsite at
+`~/backups/ghost-media/duplicate-isshin-sidecars-2026-05-29.tar.gz`. `select_clips`
+now applies a `near_dup` hard skip (`NEAR_DUP_SIM=0.97`) plus an MMR rerank
+(`MMR_LAMBDA=0.5`, `MMR_POOL=80`) over the top-scored candidate pool. See
+`lessons.md` "# Selection side".
+
 ### Environment (still current)
 Dedicated `.venv` on **Python 3.12** at the repo root — invoke as `./.venv/bin/python`.
 torch 2.12, mlx-vlm 0.5, open_clip 3.3; `requirements.lock` committed; `pyproject`

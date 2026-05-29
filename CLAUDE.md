@@ -12,9 +12,10 @@ Guidance for Claude Code (and other agents) working in this repo.
 1. **[AGENTS.md](AGENTS.md)** — contributor guide: key files, common tasks, gotchas.
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** — data flow, JSON schemas, scoring + diversity params.
 3. **[README.md](README.md)** — overview, quickstart, repo layout.
-4. **[lessons.md](lessons.md)** — engineering lessons + gotchas (silently-dead joins, billing-mode footguns, Vision + Audio sections).
-5. **[bench/TESTPLAN.md](bench/TESTPLAN.md)** — vision-engine bake-off plan + status; bake-off and corpus rescan are **complete** (PR #1 merged 2026-05-28).
+4. **[lessons.md](lessons.md)** — engineering lessons + gotchas (Vision, Audio, and Selection sections — read these before changing scoring or selection mechanics).
+5. **[bench/TESTPLAN.md](bench/TESTPLAN.md)** — vision-engine bake-off plan + status; bake-off + corpus rescan + perceptual-diversity uplift all **complete**.
 6. **[audio_field_audit.md](audio_field_audit.md)** — per-field contract for `.deep-analysis.json` (schema 2.1.0): role, cost, recommendation per field. Reference when modifying audio output.
+7. **[scripts/](scripts/)** — `audit_repeats.py` for diagnosing visible-repeat complaints; `capture_perceptual_baseline.py` for tuning selection constants without paying for full renders.
 
 ## Working conventions
 - **Generated data is gitignored** (`*.analysis.json`, `enriched/`, `text_flags/`, `sets/`, `demucs_output/`, `bench/results/`, `raw_footage/`, media). Never commit it. Code, docs, and `examples/` only.
