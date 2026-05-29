@@ -114,6 +114,24 @@ REUSE_PENALTY = 0.5        # steeper logarithmic penalty per reuse
 MAX_SOURCE_USAGE_MULT = 2.0  # cap any source at (total_phrases / n_sources) * this
 QUALITY_PENALTY_WEIGHT = 3.0  # soft penalty for dead scenes: -(1-quality)*this (see flag_quality.py)
 
+# ─── MMR Diversity Re-ranking (Phase C) ──────────────────────────────────
+# After hard-block filter and soft scoring, the top-N scored candidates pass
+# through MMR re-ranking which penalises perceptual similarity to recently-
+# selected clips before the weighted-random pool is built. Closes the metadata-
+# vs-perceptual diversity gap: filenames being different doesn't mean the
+# embeddings are different.
+MMR_LAMBDA = 0.5              # diversity penalty weight; 0 = no MMR, 1 = pure dedup
+                              # (tuned across 3 sets: λ=0.4 made cheerleader-exodus
+                              # WORSE; λ=0.7 also regressed it. λ=0.5 is the only
+                              # value where all 3 sets improve from baseline.)
+MMR_RECENT_WINDOW = 10        # how many recently-selected clips to compare against
+MMR_POOL = 80                 # post-score candidate pool size, pre-MMR
+                              # (wider than initially planned: the score pool is
+                              # often perceptually homogeneous, so MMR needs more
+                              # to choose from)
+MMR_DIAGNOSTIC_PHRASES = 10   # log per-candidate MMR diagnostics for the first N phrases
+MMR_DIAG_PATH = BASE_DIR / "bench" / "mmr_diagnostics.log"
+
 # ─── Adaptive Phrase Merging ──────────────────────────────────────────────
 # Controls how 4-bar phrases get merged for sustained/low-energy sections
 MERGE_ENERGY_THRESHOLD = 0.35   # merge adjacent phrases below this energy
@@ -687,6 +705,151 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
     return score
 
 
+# ─── MMR Re-ranking (Phase C) ──────────────────────────────────────────────
+
+def _l2_normalize(matrix):
+    """L2-normalize rows; zero-rows stay zero."""
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms = np.where(norms < 1e-9, 1.0, norms)
+    return matrix / norms
+
+
+def mmr_rerank(scored, prev_embeddings, lam, embed_dim=512):
+    """Re-rank a scored candidate pool with MMR diversity penalty.
+
+    `scored`           list of (raw_score, SceneClip), pre-sorted descending
+                        — only the top MMR_POOL are passed in
+    `prev_embeddings`  numpy array (n_recent, embed_dim), embeddings of clips
+                        previously selected (last MMR_RECENT_WINDOW); empty
+                        for the first phrase
+    `lam`              MMR_LAMBDA
+
+    Score normalization is per-phrase min-max within the pool — without this,
+    `mmr_score = score - lam * cosine` is brittle because the raw scoring
+    function produces values whose range varies wildly per phrase (a phrase
+    where all candidates score 0.6–0.8 sees a different effective λ than one
+    where they score 1.5–4.0).
+
+    Returns (re_sorted_scored, diagnostics) where re_sorted_scored is a list
+    of (mmr_score, clip) and diagnostics is a list of dicts for logging.
+    """
+    if not scored:
+        return scored, []
+
+    raw_scores = np.array([s for s, _ in scored], dtype=np.float64)
+    s_min, s_max = raw_scores.min(), raw_scores.max()
+    if s_max - s_min < 1e-9:
+        # degenerate: all candidates score the same — no normalization possible
+        norm_scores = np.zeros_like(raw_scores)
+    else:
+        norm_scores = (raw_scores - s_min) / (s_max - s_min)
+
+    # Build candidate embedding matrix. Clips without sidecars get a zero vector
+    # which will produce cosine 0 vs any prev → no penalty, no boost (graceful
+    # fallback for the missing-embedding case).
+    cand_emb = np.zeros((len(scored), embed_dim), dtype=np.float64)
+    for i, (_, clip) in enumerate(scored):
+        if clip.clip_embedding is not None:
+            cand_emb[i] = clip.clip_embedding
+    cand_emb = _l2_normalize(cand_emb)
+
+    if prev_embeddings.shape[0] == 0:
+        max_sim = np.zeros(len(scored))
+    else:
+        prev = _l2_normalize(prev_embeddings.astype(np.float64))
+        sims = cand_emb @ prev.T            # (n_candidates, n_recent)
+        max_sim = sims.max(axis=1)
+
+    mmr_scores = norm_scores - lam * max_sim
+
+    # Diagnostics (one per candidate; caller decides whether to record)
+    diagnostics = [
+        {
+            "raw_score": float(raw_scores[i]),
+            "norm_score": float(norm_scores[i]),
+            "max_recent_cosine": float(max_sim[i]),
+            "mmr_score": float(mmr_scores[i]),
+            "source_name": scored[i][1].source_name,
+            "scene_index": scored[i][1].scene_index,
+        }
+        for i in range(len(scored))
+    ]
+
+    # Re-sort by mmr_score descending; preserve (mmr_score, clip) shape so the
+    # downstream weighted-random sampler can use the same code path.
+    order = np.argsort(-mmr_scores)
+    re_sorted = [(float(mmr_scores[i]), scored[i][1]) for i in order]
+    return re_sorted, diagnostics
+
+
+# ─── Perceptual Diversity Metrics (Phase D) ────────────────────────────────
+
+def compute_perceptual_diversity(selections, scenes):
+    """Measure perceptual diversity over the final ordered clip selection.
+
+    Operates after select_clips() has returned. The metrics are what the
+    viewer actually experiences (post-MMR if Phase C is active, post-
+    weighted-random in all cases). Per the audit-driven acceptance bar,
+    we track close-pair *counts* at multiple cosine thresholds rather than
+    a single mean — repeats are about specific pairs, not aggregate.
+
+    Returns a dict suitable for printing and for committing to
+    bench/perceptual_baselines.json.
+    """
+    # Map (source_name, start_sec) -> SceneClip so we can recover embeddings
+    # from selection dicts.
+    lookup = {(s.source_name, round(s.start_sec, 4)): s for s in scenes}
+
+    chrono = []
+    n_excluded = 0
+    for sel in selections:
+        key = (sel["clip_source_name"], round(sel["clip_start"], 4))
+        clip = lookup.get(key)
+        if clip is None or clip.clip_embedding is None:
+            n_excluded += 1
+            chrono.append(None)
+        else:
+            chrono.append(clip.clip_embedding)
+
+    def cos(a, b):
+        na = np.linalg.norm(a)
+        nb = np.linalg.norm(b)
+        if na < 1e-9 or nb < 1e-9:
+            return 0.0
+        return float(np.dot(a, b) / (na * nb))
+
+    consec_sims = []
+    for i in range(1, len(chrono)):
+        if chrono[i] is not None and chrono[i-1] is not None:
+            consec_sims.append(cos(chrono[i], chrono[i-1]))
+
+    def count_pairs(window, thresholds):
+        counts = {t: 0 for t in thresholds}
+        for i in range(len(chrono)):
+            if chrono[i] is None:
+                continue
+            for j in range(max(0, i - window), i):
+                if chrono[j] is None:
+                    continue
+                sim = cos(chrono[i], chrono[j])
+                for t in thresholds:
+                    if sim >= t:
+                        counts[t] += 1
+        return counts
+
+    return {
+        "n_selections": len(selections),
+        "n_excluded": n_excluded,
+        "n_consec_pairs": len(consec_sims),
+        "consec_mean": float(np.mean(consec_sims)) if consec_sims else 0.0,
+        "consec_median": float(np.median(consec_sims)) if consec_sims else 0.0,
+        "consec_p90": float(np.percentile(consec_sims, 90)) if consec_sims else 0.0,
+        "consec_p95": float(np.percentile(consec_sims, 95)) if consec_sims else 0.0,
+        "close_pairs_w5": count_pairs(5, [0.85, 0.80, 0.75]),
+        "close_pairs_w30": count_pairs(30, [0.90, 0.85]),
+    }
+
+
 # ─── Clip Selection ────────────────────────────────────────────────────────
 
 def merge_phrases_adaptive(phrase_features):
@@ -745,9 +908,16 @@ def select_clips(scenes, phrase_features, style_hints=None):
         style_hints = {}
 
     selections = []
+    selected_clips = []      # SceneClip objects in selection order (for MMR)
     recent_sources = []      # hard block window (source-level)
     recent_scenes = []       # hard block window (scene-level)
     source_use_count = {}    # global usage tracking
+
+    # Truncate MMR diagnostic log at start of each run so it doesn't accumulate
+    # across multiple --set invocations in a batch.
+    if MMR_LAMBDA > 0:
+        MMR_DIAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MMR_DIAG_PATH.write_text("")
 
     total_sources = len(set(s.source_name for s in scenes))
     total_phrases = len(phrase_features)
@@ -757,6 +927,12 @@ def select_clips(scenes, phrase_features, style_hints=None):
     for i, phrase in enumerate(phrase_features):
         scored = []
         for clip in scenes:
+            # Hard block: perceptual near-duplicate (Phase A).
+            # near_dup-flagged clips are excluded from the strict pool the same
+            # way as VARIETY_WINDOW — both are perceptual-diversity constraints.
+            if "near_dup" in clip.cull_flags:
+                continue
+
             # Hard block: skip if source was used recently
             if clip.source_name in recent_sources:
                 continue
@@ -780,35 +956,84 @@ def select_clips(scenes, phrase_features, style_hints=None):
             scored.append((s, clip))
 
         if not scored:
-            # Fallback: relax variety constraint but keep scene dedup
+            # Fallback 1: relax perceptual-diversity constraints (VARIETY_WINDOW
+            # AND near_dup hard skip) together. Keep scene dedup + usage ceiling.
             for clip in scenes:
                 scene_key = f"{clip.source_name}:{clip.scene_index}"
                 if scene_key in recent_scenes:
+                    continue
+                use_count = source_use_count.get(clip.source_name, 0)
+                if use_count >= max_source_uses:
                     continue
                 s = score_scene(clip, phrase, style_hints)
                 scored.append((s, clip))
 
         if not scored:
-            # Last resort: fully relaxed
+            # Fallback 2: drop scene dedup too. Last meaningful constraint
+            # (usage ceiling) still applies.
+            for clip in scenes:
+                use_count = source_use_count.get(clip.source_name, 0)
+                if use_count >= max_source_uses:
+                    continue
+                s = score_scene(clip, phrase, style_hints)
+                scored.append((s, clip))
+
+        if not scored:
+            # Last resort: fully relaxed (including usage ceiling). Should
+            # essentially never fire on a healthy corpus.
             for clip in scenes:
                 s = score_scene(clip, phrase, style_hints)
                 scored.append((s, clip))
 
         scored.sort(key=lambda x: x[0], reverse=True)
 
-        # Wider random pool for more diversity
-        top_n = min(TOP_CANDIDATES, len(scored))
-        top_scores = [s for s, _ in scored[:top_n]]
+        # ── MMR diversity re-rank (Phase C) ─────────────────────────────────
+        # Take a wider top-MMR_POOL, then re-rank by score - λ * max_cosine to
+        # the last MMR_RECENT_WINDOW selected clips. The final weighted-random
+        # draw happens over the TOP_CANDIDATES of the re-ranked list.
+        pool = scored[:min(MMR_POOL, len(scored))]
+        if MMR_LAMBDA > 0 and pool:
+            # Build the recent-embedding matrix (may be empty for first phrase)
+            recent_clips = selected_clips[-MMR_RECENT_WINDOW:]
+            recent_embs = [c.clip_embedding for c in recent_clips
+                           if c.clip_embedding is not None]
+            if recent_embs:
+                prev_matrix = np.array(recent_embs, dtype=np.float64)
+            else:
+                prev_matrix = np.zeros((0, 512), dtype=np.float64)
+
+            embed_dim = (recent_embs[0].shape[0] if recent_embs
+                         else (pool[0][1].clip_embedding.shape[0]
+                               if pool[0][1].clip_embedding is not None else 512))
+            pool, mmr_diag = mmr_rerank(pool, prev_matrix, MMR_LAMBDA, embed_dim)
+
+            # Diagnostic logging for the first MMR_DIAGNOSTIC_PHRASES phrases.
+            if i < MMR_DIAGNOSTIC_PHRASES:
+                with open(MMR_DIAG_PATH, "a") as f:
+                    for k, diag in enumerate(mmr_diag):
+                        f.write(
+                            f"phrase={i} cand={k} src={diag['source_name'][:30]} "
+                            f"scene={diag['scene_index']} "
+                            f"raw={diag['raw_score']:.3f} norm={diag['norm_score']:.3f} "
+                            f"max_recent={diag['max_recent_cosine']:.3f} "
+                            f"mmr={diag['mmr_score']:.3f}\n"
+                        )
+
+        # Wider random pool for more diversity (operates on MMR-reranked list
+        # when MMR is active; on raw-sorted list when MMR_LAMBDA == 0)
+        top_n = min(TOP_CANDIDATES, len(pool))
+        top_scores = [s for s, _ in pool[:top_n]]
         if top_scores:
             weights = np.array(top_scores)
-            # Ensure positive weights
+            # Ensure positive weights — MMR scores can go negative when the
+            # diversity penalty exceeds the normalized score.
             weights = weights - weights.min() + 0.01
             weights = weights / weights.sum()
             chosen_idx = np.random.choice(top_n, p=weights)
         else:
             chosen_idx = 0
 
-        best_score, best_clip = scored[chosen_idx]
+        best_score, best_clip = pool[chosen_idx]
 
         # Determine clip duration: use phrase duration but cap to scene length
         # If scene is loopable and phrase is longer, loop it instead of truncating
@@ -856,6 +1081,10 @@ def select_clips(scenes, phrase_features, style_hints=None):
         recent_scenes.append(scene_key)
         if len(recent_scenes) > SCENE_VARIETY_WINDOW:
             recent_scenes.pop(0)
+
+        # MMR history (Phase C): the clip object itself, for cosine vs candidates.
+        # No window cap here — the slicing happens at use time with [-MMR_RECENT_WINDOW:].
+        selected_clips.append(best_clip)
 
         source_use_count[best_clip.source_name] = source_use_count.get(best_clip.source_name, 0) + 1
 
@@ -1225,6 +1454,25 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
 
     scores = [s["match_score"] for s in selections]
     print(f"    Scores: mean={np.mean(scores):.2f}  min={min(scores):.2f}  max={max(scores):.2f}")
+
+    # ── 4b. Perceptual diversity logger (Phase D) ──
+    # Operates on the FINAL ordered selection (post-weighted-random) so it
+    # measures what the viewer actually experiences, not the candidate pool.
+    pd_metrics = compute_perceptual_diversity(selections, scenes)
+    print(f"\n  [4b/5] Perceptual diversity")
+    print(f"    Consecutive cosine: mean={pd_metrics['consec_mean']:.3f}  "
+          f"median={pd_metrics['consec_median']:.3f}  "
+          f"(n={pd_metrics['n_consec_pairs']}"
+          + (f", {pd_metrics['n_excluded']} excluded for missing embeddings)"
+             if pd_metrics['n_excluded'] else ")"))
+    print(f"    Close pairs within window 5:")
+    for t in [0.85, 0.80, 0.75]:
+        n = pd_metrics["close_pairs_w5"].get(t, 0)
+        print(f"      cosine ≥ {t:.2f}: {n:>4} pairs")
+    print(f"    Close pairs within window 30:")
+    for t in [0.90, 0.85]:
+        n = pd_metrics["close_pairs_w30"].get(t, 0)
+        print(f"      cosine ≥ {t:.2f}: {n:>4} pairs")
 
     # Save plan
     output_dir.mkdir(parents=True, exist_ok=True)
