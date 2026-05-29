@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "label": "phase_C_final",
+  "assembler_commit": "f0dcbbf",
+  "phrase_bars": 4,
+  "seed": 42,
+  "sets": {
+    "waiting-to-begin-2024": {
+      "n_selections": 534,
+      "n_excluded": 0,
+      "n_consec_pairs": 533,
+      "consec_mean": 0.6709031017032394,
+      "consec_median": 0.6724124550819397,
+      "consec_p90": 0.7978115797042846,
+      "consec_p95": 0.8261280536651611,
+      "close_pairs_w5": {
+        "0.85": 35,
+        "0.8": 226,
+        "0.75": 567
+      },
+      "close_pairs_w30": {
+        "0.9": 23,
+        "0.85": 240
+      },
+      "distinct_sources_used": 38,
+      "max_single_source_count": 17
+    },
+    "cheerleader-exodus-2025": {
+      "n_selections": 700,
+      "n_excluded": 0,
+      "n_consec_pairs": 699,
+      "consec_mean": 0.6689379534155173,
+      "consec_median": 0.6731252074241638,
+      "consec_p90": 0.791908860206604,
+      "consec_p95": 0.8137465417385101,
+      "close_pairs_w5": {
+        "0.85": 36,
+        "0.8": 280,
+        "0.75": 697
+      },
+      "close_pairs_w30": {
+        "0.9": 27,
+        "0.85": 276
+      },
+      "distinct_sources_used": 38,
+      "max_single_source_count": 22
+    },
+    "boxing-day-2025": {
+      "n_selections": 572,
+      "n_excluded": 0,
+      "n_consec_pairs": 571,
+      "consec_mean": 0.6695944111004811,
+      "consec_median": 0.6686893105506897,
+      "consec_p90": 0.7985790967941284,
+      "consec_p95": 0.8303000330924988,
+      "close_pairs_w5": {
+        "0.85": 43,
+        "0.8": 262,
+        "0.75": 605
+      },
+      "close_pairs_w30": {
+        "0.9": 26,
+        "0.85": 271
+      },
+      "distinct_sources_used": 38,
+      "max_single_source_count": 18
+    }
+  }
+}

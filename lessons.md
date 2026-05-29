@@ -528,3 +528,112 @@ results, almost certainly worse.
 **Lesson:** when adding a new scoring component to a tuned pipeline, land at
 <0.5 weight or as a multiplier on an existing term. Verify against a smoke set
 with frozen seed; ratchet up only after observing the distribution shift.
+
+# Selection side
+
+## Metadata diversity is not perceptual diversity
+
+The assembler's `select_clips` enforced three diversity controls
+(`VARIETY_WINDOW=15`, `SCENE_VARIETY_WINDOW=30`, `MAX_SOURCE_USAGE_MULT=2.0`)
+all keyed off filename strings (`source_name`) and structural indexes
+(`scene_index`). The console output bragged "40/40 sources used" while the
+viewer perceived constant repeats. The audit (Phase 0 of the
+perceptual-diversity uplift) made the gap concrete: 6 of the user-visible
+"repeats" in the smoke video were the same source file appearing under two
+filenames (`isshin REEL 2022.webm` ↔ `isshin REEL 2022-d557b.webm`, cosine
+1.000) — different `source_name` strings, identical embeddings, so the
+metadata-keyed diversity windows had no idea they were the same.
+
+The CLIP embeddings sat in `SceneClip.clip_embedding` from sidecars and were
+used exactly once in scoring — for matching scenes against the phrase's
+lyric-text embedding. They were never used for scene-vs-scene similarity at
+selection time.
+
+**Lesson:** when "looks the same" is the property you care about, measure it
+in the embedding space, not the filesystem. Filename uniqueness, scene-index
+uniqueness, and source-rotation windows protect against indexing-level
+repeats but not perceptual ones. The 12-component scoring function already
+loaded the embeddings; selection was the missing consumer.
+
+## Hash-suffix duplicate files are silent corpus poisoning
+
+The audit found `isshin REEL 2022.webm` and `isshin REEL 2022-d557b.webm` as
+two enriched files (each with its own sampling plan, text flags, quality
+sidecar, CLIP embeddings) referencing visually-identical content. They
+existed because re-runs of the analyzer renamed the output with a hash
+suffix when the original was already present; both got committed to the
+enrichment pipeline. Same for the 2024 reel. Every downstream consumer
+treated them as independent sources.
+
+The cost wasn't disk — it was the assembler picking the same scene from both
+"sources" in close succession because each appeared eligible under
+`VARIETY_WINDOW=15` (different `source_name`). Two corpus files producing six
+back-to-back identical clips in one 41-minute render.
+
+A scan for the pattern `*-XXXXXX.enriched.json` paired with a no-suffix
+variant catches this. The dedup is mechanical: keep the non-hash filename,
+delete the hash-suffix sidecars (enriched, embeddings, quality, sampling
+plan, text flags). Offsite tarball as insurance.
+
+**Lesson:** filename diversity is not source diversity. When the same
+analyzer can write the same content under two filenames, downstream code
+treats them as independent sources whether they are or not. Audit the corpus
+periodically for hash-suffix-vs-base duplicate pairs; the lessons.md note
+"`--video` substring filter matches duplicate hashed files" was the earlier
+half of this same problem.
+
+## MMR with windowed history fixes selection, but the candidate pool ceiling matters more than λ
+
+Phase C ported the MMR re-ranker from `query_scenes.py:89–107` into
+`select_clips`. First attempt: `MMR_LAMBDA=0.4`, pool of 30 (top-30 scored
+candidates re-ranked by `score - λ × max_cosine_to_last_10_selected`). Result
+on three test sets: `waiting-to-begin-2024` and `boxing-day-2025` improved,
+but **`cheerleader-exodus-2025` regressed** on the primary metric (pairs
+≥0.85 within window 5 went from 42 → 51).
+
+The diagnostic log (`bench/mmr_diagnostics.log`, first 10 phrases per run)
+showed why: by phrase 3, **29 of 30 candidates already had max_recent_cosine
+> 0.7**. The pool was uniformly perceptually similar to recent picks —
+because all the top-scoring candidates for any given phrase tend to *look
+alike* (they all match the same energy + brightness + contrast targets). λ
+can rearrange a homogeneous pool but can't conjure variety from it.
+
+Widening the pool to 80 with λ=0.5 fixed cheerleader (51 → 36) without
+regressing the other two sets. Pushing λ to 0.7 swung cheerleader back to
+47 — too aggressive. The per-set tuning was stable enough that one global λ
+worked, but only after the pool gave MMR room to find genuinely different
+clips.
+
+**Lesson:** with MMR over a scored candidate pool, the *width* of the pool
+matters more than the diversity weight. A narrow pool ensures all
+candidates are score-equivalents that may also be perceptual-equivalents. Widen
+first, then tune λ. The diagnostic log of (raw_score, normalized_score,
+max_recent_cosine, mmr_score) per candidate is essential for understanding
+which lever to pull when one set responds differently from the others.
+
+Per-phrase score normalization (min-max within the pool) is also mandatory:
+without it, the raw-score range varies wildly per phrase and λ becomes
+brittle. A phrase where candidates score 0.6–0.8 vs one where they score
+1.5–4.0 produces a different effective penalty for the same λ. Normalize to
+[0, 1] before applying the cosine penalty.
+
+## "Sources used 40/40" is not the same as "40 distinct visual experiences"
+
+The Phase 0 audit script computed close-pair-count metrics at multiple
+thresholds (cosine ≥ 0.95, 0.90, 0.85, 0.80, 0.75) across multiple windows
+(1, 3, 5, 10, 30 phrases). The point: the human eye registers "this looks
+like the previous one" at far lower cosine than 1.0. Mean consecutive
+cosine of 0.69 (baseline on `waiting-to-begin-2024`) means almost half the
+selection has consecutive pairs at ≥ 0.70 — a visually obvious resemblance,
+even though no scene is literally repeated.
+
+Phase D's perceptual-diversity logger emits the same metrics during every
+run (`compute_perceptual_diversity` in `assemble_v2.py`), so future tuning
+has a concrete observable rather than relying on the "40/40 sources" tally
+that bears no relation to what the eye sees.
+
+**Lesson:** when the user complaint is perceptual, instrument the perceptual
+dimension. Source-distribution stats answer a different question
+("operational diversity") and can read healthy while the experience is
+monotonous. Both numbers want to be in the assembler's standard log block,
+not one substituting for the other.
