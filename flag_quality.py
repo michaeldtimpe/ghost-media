@@ -46,7 +46,13 @@ BLACK_BRIGHTNESS_P95 = 0.05   # 95th-pct brightness below this → effectively b
 BLOWN_BRIGHTNESS_P5 = 0.95    # 5th-pct brightness above this  → clipped white
 FROZEN_MAX_MOTION = 0.05      # peak motion below this → a true freeze/still
 FLAT_CONTRAST = 0.04          # mean contrast below this → near-uniform, low-info
-NEAR_DUP_SIM = 0.985          # cosine ≥ this vs an earlier kept scene → duplicate
+NEAR_DUP_SIM = 0.97           # cosine ≥ this vs an earlier kept scene → duplicate
+                              # (was 0.985 — too permissive, only caught byte-
+                              # identical scenes. 0.97 catches perceptually-near-
+                              # duplicates while not over-culling middle-rich
+                              # sources. 0.95 was probed and produced 9 sources
+                              # with >40% flagged; 0.97 gives 8 with a less
+                              # severe distribution — see Phase 0 audit notes.)
 
 # ─── Penalties → sub-scores ──────────────────────────────────────────────────
 # black/blown/frozen are genuinely unusable → strong. low_info (flat frame) is
