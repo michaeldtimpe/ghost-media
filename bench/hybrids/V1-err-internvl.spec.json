@@ -1,0 +1,11 @@
+{
+  "name": "hybrid-V1-err-internvl",
+  "mode": "trigger-replace",
+  "base": "mlx-qwen7b",
+  "escalation": "mlx-internvl",
+  "trigger": {"any_of": [
+    {"field": "error", "op": "truthy"},
+    {"field": "parse_ok", "op": "==", "value": false}
+  ]},
+  "description": "Replace mlx-qwen7b's error/parse-fail frames with InternVL output. Cheapest possible reliability fix."
+}

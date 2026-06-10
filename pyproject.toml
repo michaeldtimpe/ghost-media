@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "media-analyzer"
+version = "0.1.0"
+description = "Local media analysis toolkit producing ML-friendly JSON"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = {text = "MIT"}
+
+dependencies = [
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "opencv-python-headless>=4.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+media-analyzer = "media_analyzer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["media_analyzer*"]
