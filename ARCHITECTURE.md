@@ -35,7 +35,7 @@ The system has four independent analysis pipelines that feed into a single assem
 │  Merges: scenes + motion + color +   │
 │  brightness + semantics - text +     │
 │  CLIP emb + quality + loop flags     │
-│  ~19,000 usable scenes              │
+│  ~6,500 usable scenes               │
 └────────────────┬─────────────────────┘
                  │
                  │   ┌──────────────────────────┐
@@ -295,7 +295,8 @@ The `phrase_lyrics` index maps phrase indices to keyword lists, consumed directl
    - Semantic data from nearest frame analysis (visual style, mood, tags)
 3. Filter out scenes < 1.5s or > 120s
 4. Filter out scenes overlapping with English text flags
-5. Result: ~19,000 candidate scenes with full feature vectors
+5. Result: ~6,500 candidate scenes with full feature vectors (after duration
+   + text filters, across the 52-source enriched corpus)
 
 ### Phrase Feature Extraction
 
@@ -335,7 +336,7 @@ match terms; the rest are additive bonuses/penalties (see `score_scene` in
 | 1 | Motion-energy | 1.0 | Visual motion ↔ audio energy |
 | 2 | Brightness | 0.8 | Visual brightness ↔ spectral centroid |
 | 3 | Color temperature | 0.7 | Warm colors ↔ bass-heavy audio |
-| 4 | Duration fit | 0.9 × `(0.6 + 0.4 × bpm_confidence)` | Scene length ↔ target (3-15s based on energy), **soft-de-emphasized** on low-confidence BPM phrases (breakdowns / intros / transitions). At zero confidence, term retains 60% weight — mild, not "disable". |
+| 4 | Duration fit | 0.9 × `(0.6 + 0.4 × bpm_confidence)` | Scene length ↔ target (3-15s based on energy), **speed-fit aware**: judged on the closest duration the clip can *present* within the render speed range `[SPEED_FIT_MIN, SPEED_FIT_MAX]` (a 5.6s scene is a perfect 8s phrase at 0.7×). Also **soft-de-emphasized** on low-confidence BPM phrases (breakdowns / intros / transitions); at zero confidence, term retains 60% weight — mild, not "disable". |
 | 5 | Saturation | 0.5 | Color saturation ↔ energy level |
 | 6 | Contrast | 0.5 | Visual contrast ↔ percussive ratio |
 | 6b | **Onset-density ↔ motion-jitter** | 0.4 | Per-set percentile-ranked `onsets/sec` per phrase × per-corpus percentile-ranked `motion_std` per clip. Orthogonal to energy: distinguishes lots-of-small-percussion from one-sustained-pad at the same loudness. Both sides percentile-ranked so the match is scale-free (insensitive to BPM regime or motion magnitude). |
@@ -376,6 +377,7 @@ on a new dimension would destabilize that balance. See `lessons.md` under
 | Scene variety window | `SCENE_VARIETY_WINDOW = 30` | Hard block: exact same `(source, scene_index)` can't repeat within 30 clips |
 | Usage ceiling | `MAX_SOURCE_USAGE_MULT = 2.0` | Cap: no source exceeds `(total_clips / n_sources) * 2` uses |
 | Reuse penalty | `REUSE_PENALTY = 0.5` | Soft: `score *= 1/(1 + 0.5 * uses)` — steep diminishing returns |
+| Scene reuse penalty | `SCENE_REUSE_PENALTY = 1.0` | Soft, per `(source, scene_index)`: re-showing the exact scene is far more visible than re-visiting a source, so identical frames decay faster than the source-level penalty. Window-mode offset variation additionally makes long-scene reuses show different footage. |
 | MMR pool size | `MMR_POOL = 80` | After hard blocks + scoring, top-80 by raw score enter MMR re-rank. Tuning showed pool ceiling matters more than λ — a narrower pool of 30 left one validation set worse off because all top-scoring candidates were perceptually similar. |
 | MMR diversity weight | `MMR_LAMBDA = 0.5` | `mmr_score = norm(raw) − λ × max_cosine(candidate, last MMR_RECENT_WINDOW selected)` |
 | MMR recent window | `MMR_RECENT_WINDOW = 10` | Compare each candidate against the last 10 picked clips |
@@ -416,11 +418,28 @@ These ride with every assembler run going forward. Baselines for the validation
 sets are committed at `bench/perceptual_baselines.json`; post-uplift results at
 `bench/perceptual_results.json`.
 
-### Video Assembly
+### Video Assembly (frame-exact, v2.1)
 
-1. Extract each selected clip segment via ffmpeg (scale to 1080p, pad black)
-2. Concatenate with 8-frame crossfades
-3. Overlay DJ set audio starting at the first phrase's timestamp
+Every clip is planned in **frames anchored to the audio timeline**: clip *i*
+ends at the frame nearest `(phrase_i.end_sec − timeline_start)`, so per-clip
+rounding can never accumulate and every cut lands on a phrase boundary.
+Per-clip render mode (chosen in `select_clips`, executed by `extract_clip`):
+
+| Mode | When | Mechanics |
+|------|------|-----------|
+| `window` | scene ≥ 1.35 × phrase | Cut a phrase-length window; start offset varies per reuse so a re-used scene shows different footage |
+| `speedfit` | scene within 0.7–1.35 × phrase | Play the whole scene speed-adjusted (`setpts`, slow-mo or speed-up) to land exactly on the frame count |
+| `loop` | loopable-flagged, or > `PINGPONG_MAX_SCENE` | Repeat scene start-to-start, trim to frames |
+| `pingpong` | any other short scene (≤ 15s) | Forward+reverse cycle (seam frame de-duplicated), repeated to fill — seamless for any content |
+
+1. Extract each clip at exactly its planned frame count (`-frames:v`, never
+   wall-clock `-t` on the output side), scaled to 1080p, padded black. A failed
+   extraction renders **black filler** of the planned frame count — dropping a
+   clip would shift every later cut off the audio timeline.
+2. Verify: ffprobe every rendered clip; assert `rendered frames == planned
+   frames`, print net drift if any.
+3. Concatenate (hard cuts on phrase boundaries — beat-aligned cuts, no
+   crossfades) and overlay DJ set audio starting at the first phrase's timestamp.
 4. Output: MP4 @ 30fps, AAC 192kbps
 
 ## External Dependencies

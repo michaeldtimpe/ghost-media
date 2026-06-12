@@ -24,7 +24,8 @@ def _clip(**kw):
     base = dict(
         source_name="src", source_path="src.mp4", scene_index=0,
         start_sec=0.0, end_sec=5.0, duration_sec=5.0,
-        motion_mean=5.0, motion_peak=8.0, brightness_mean=0.5, contrast_mean=0.3,
+        motion_mean=5.0, motion_peak=8.0, motion_std=1.0,
+        brightness_mean=0.5, contrast_mean=0.3,
         dominant_colors=[], color_temperature=0.5, color_saturation=0.4,
         visual_style="abstract", mood_energy="moderate", content_tags=[],
         has_semantic=True,

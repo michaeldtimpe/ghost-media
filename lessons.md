@@ -637,3 +637,49 @@ dimension. Source-distribution stats answer a different question
 ("operational diversity") and can read healthy while the experience is
 monotonous. Both numbers want to be in the assembler's standard log block,
 not one substituting for the other.
+
+# Render side
+
+## The render layer must enforce the sync contract, or the scoring layer is decorative
+
+v2.0 scored scenes against phrases with eleven weighted dimensions, then the
+render layer quietly broke the only assumption that made any of it matter:
+that clip i occupies exactly phrase i's span on the audio timeline. Two bugs
+compounded: clips were truncated to scene length when the scene was shorter
+than the phrase (median scene 3.8s vs median 4-bar phrase 7.0s — so *most*
+clips), and every extraction padded +0.5s of unaccounted video. The concat
+just butt-joined whatever lengths arrived. Cuts drifted off phrase
+boundaries cumulatively; minutes in, the clip "matched" to a phrase was
+playing against entirely different audio.
+
+The v2.1 fix plans every clip in *frames anchored to the audio timeline*
+(`end_frame = round((phrase.end_sec - timeline_start) * FPS)`), so per-clip
+rounding cannot accumulate, and fills short scenes (slow-mo speedfit /
+ping-pong / loop) instead of truncating. A failed extraction renders black
+filler of the planned frame count rather than being dropped — a dropped
+clip would shift every later cut. A post-extraction ffprobe pass verifies
+`rendered frames == planned frames` per clip and prints net drift.
+
+**Lesson:** in any "plan then render" pipeline, the renderer needs an
+explicit, *verified* contract with the planner. The selection layer had four
+diversity mechanisms and a diagnostic log; the render layer had zero
+assertions — and that's exactly where the product-breaking bug lived for
+two months. Instrument the boring layer.
+
+## ffmpeg `-t` placement decides whether filters can change duration
+
+`-t` after `-i` is an *output* option: it caps the encoded result. With a
+`setpts=PTS/0.7` slow-mo (or a `reverse`+`concat` ping-pong) in the filter
+chain, an output-side `-t {scene_duration}` silently truncates the stretched
+result back to the original length — the filter runs, then its entire
+purpose is cut off. The failure is invisible in exit codes; only frame
+counting caught it. Input-side `-t` (before `-i`) bounds how much source is
+*read*, which is what scene extraction wants.
+
+Two adjacent gotchas from the same debugging session: (1) naive ping-pong
+(`split → reverse → concat`) duplicates the seam frame — forward ends on
+frame X, reverse begins on frame X — which reads as a stutter and gets
+dropped (with a timestamp gap) by a later `concat -c copy`; trim the first
+frame of the reversed half. (2) `-frames:v N` is the only duration control
+that survives all of this — frame counts, never wall-clock seconds, are the
+unit the sync contract is written in.

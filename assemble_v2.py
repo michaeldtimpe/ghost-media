@@ -12,6 +12,15 @@ Fixes from v1:
   4. Real motion/color/brightness from video analysis (not qwen guesses)
   5. Scene duration matching — fast cuts for energy, long holds for grooves
 
+v2.1 render layer (frame-exact sync contract):
+  6. Every clip is planned in frames anchored to the audio timeline — cuts
+     land on phrase boundaries (v2.0 truncated short scenes and padded
+     +0.5s per clip, drifting off the audio within minutes)
+  7. Scenes shorter than their phrase are slow-mo'd (speedfit), ping-pong
+     looped, or plain-looped — never truncated
+  8. Long scenes are windowed with varied start offsets per reuse; exact
+     scene reuse carries its own penalty (SCENE_REUSE_PENALTY)
+
 Pipeline:
   1. Load enriched files → build scene database with merged features
   2. Load deep audio analysis → extract phrase features
@@ -108,11 +117,24 @@ MIN_SCENE_DURATION = 1.5   # ignore scenes shorter than this
 MAX_SCENE_DURATION = 120   # ignore extremely long static scenes
 VARIETY_WINDOW = 15        # hard block: no same source within N phrases
 SCENE_VARIETY_WINDOW = 30  # hard block: no same scene within N phrases
-CROSSFADE_FRAMES = 8       # frames of crossfade between clips
 TOP_CANDIDATES = 20        # random pool size for weighted selection
 REUSE_PENALTY = 0.5        # steeper logarithmic penalty per reuse
+SCENE_REUSE_PENALTY = 1.0  # per-scene analogue of REUSE_PENALTY — re-showing the
+                           # exact scene is far more visible than re-visiting a source
 MAX_SOURCE_USAGE_MULT = 2.0  # cap any source at (total_phrases / n_sources) * this
 QUALITY_PENALTY_WEIGHT = 3.0  # soft penalty for dead scenes: -(1-quality)*this (see flag_quality.py)
+
+# ─── Frame-Exact Rendering ────────────────────────────────────────────────
+# Every clip is planned in *frames* anchored to the audio timeline: clip i
+# always ends at the frame nearest (phrase_i.end_sec - timeline_start), so
+# per-clip rounding can never accumulate and cuts stay on phrase boundaries.
+# Scenes shorter than their phrase are stretched (slow-mo), ping-pong looped,
+# or plain-looped instead of truncated — truncation was the v2.0 sync bug.
+FPS = 30                   # output frame rate; all durations are planned as frame counts
+SPEED_FIT_MIN = 0.7        # slowest playback (slow-mo) used to stretch a scene onto a phrase
+SPEED_FIT_MAX = 1.35       # fastest playback used to compress a scene onto a phrase
+PINGPONG_MAX_SCENE = 15.0  # ping-pong only for scenes ≤ this — ffmpeg reverse buffers
+                           # the whole clip in RAM (~3 MB/frame at 1080p)
 
 # ─── MMR Diversity Re-ranking (Phase C) ──────────────────────────────────
 # After hard-block filter and soft scoring, the top-N scored candidates pass
@@ -599,9 +621,16 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
         target_warmth = max(target_warmth - 0.25, 0.0)
     temp_match = 1.0 - abs(clip.color_temperature - target_warmth)
 
-    # 4. Duration suitability
+    # 4. Duration suitability — speed-fit aware. The render layer can play a
+    #    clip anywhere in [SPEED_FIT_MIN, SPEED_FIT_MAX], so judge the closest
+    #    duration the clip can *present*, not its native length. This only
+    #    raises dur_match for near-fits (a 5.6s scene is a perfect 8s phrase
+    #    at 0.7x); exact fits are unaffected.
     target_dur = 3.0 + (1.0 - target_energy) * 12.0
-    dur_ratio = clip.duration_sec / target_dur
+    presentable_min = clip.duration_sec / SPEED_FIT_MAX
+    presentable_max = clip.duration_sec / SPEED_FIT_MIN
+    effective_dur = min(max(target_dur, presentable_min), presentable_max)
+    dur_ratio = effective_dur / target_dur
     if dur_ratio < 0.3:
         dur_match = dur_ratio / 0.3 * 0.5
     elif dur_ratio > 3.0:
@@ -796,14 +825,15 @@ def compute_perceptual_diversity(selections, scenes):
     Returns a dict suitable for printing and for committing to
     bench/perceptual_baselines.json.
     """
-    # Map (source_name, start_sec) -> SceneClip so we can recover embeddings
-    # from selection dicts.
-    lookup = {(s.source_name, round(s.start_sec, 4)): s for s in scenes}
+    # Map (source_name, scene_index) -> SceneClip so we can recover embeddings
+    # from selection dicts. (clip_start no longer identifies a scene — window
+    # mode varies the start offset within the scene per reuse.)
+    lookup = {(s.source_name, s.scene_index): s for s in scenes}
 
     chrono = []
     n_excluded = 0
     for sel in selections:
-        key = (sel["clip_source_name"], round(sel["clip_start"], 4))
+        key = (sel["clip_source_name"], sel.get("scene_index"))
         clip = lookup.get(key)
         if clip is None or clip.clip_embedding is None:
             n_excluded += 1
@@ -912,6 +942,12 @@ def select_clips(scenes, phrase_features, style_hints=None):
     recent_sources = []      # hard block window (source-level)
     recent_scenes = []       # hard block window (scene-level)
     source_use_count = {}    # global usage tracking
+    scene_use_count = {}     # (source_name, scene_index) → uses; identical frames decay fast
+
+    # Frame-exact timeline anchor: clip i always ends at the frame nearest
+    # (phrase_i.end_sec - timeline_start). Per-clip rounding cannot accumulate.
+    timeline_start = phrase_features[0].start_sec if phrase_features else 0.0
+    frames_emitted = 0
 
     # Truncate MMR diagnostic log at start of each run so it doesn't accumulate
     # across multiple --set invocations in a batch.
@@ -952,6 +988,13 @@ def select_clips(scenes, phrase_features, style_hints=None):
             # Steeper soft penalty for overused sources
             if use_count > 0:
                 s *= 1.0 / (1.0 + REUSE_PENALTY * use_count)
+
+            # Per-scene penalty on top — REUSE_PENALTY is keyed by source, so
+            # without this a top-scoring scene legally recurred every
+            # SCENE_VARIETY_WINDOW phrases showing identical frames.
+            scene_uses = scene_use_count.get((clip.source_name, clip.scene_index), 0)
+            if scene_uses > 0:
+                s *= 1.0 / (1.0 + SCENE_REUSE_PENALTY * scene_uses)
 
             scored.append((s, clip))
 
@@ -1035,20 +1078,47 @@ def select_clips(scenes, phrase_features, style_hints=None):
 
         best_score, best_clip = pool[chosen_idx]
 
-        # Determine clip duration: use phrase duration but cap to scene length
-        # If scene is loopable and phrase is longer, loop it instead of truncating
-        needs_loop = False
-        loop_count = 0
-        if best_clip.loopable and phrase.duration_sec > best_clip.duration_sec:
-            clip_duration = phrase.duration_sec
-            loop_count = math.ceil(phrase.duration_sec / best_clip.duration_sec) - 1
-            needs_loop = True
-        else:
-            clip_duration = min(phrase.duration_sec, best_clip.duration_sec - 0.2)
-        clip_duration = max(clip_duration, 1.0)
+        # ── Frame-exact render plan ──────────────────────────────────────
+        # The clip must end at the frame nearest the phrase's end on the
+        # audio timeline. v2.0 truncated clips to scene length (most scenes
+        # are shorter than their phrase), which desynced every later cut.
+        end_frame = int(round((phrase.end_sec - timeline_start) * FPS))
+        n_frames = max(end_frame - frames_emitted, FPS)  # never under 1s
+        target_dur = n_frames / FPS
+        frames_emitted += n_frames
 
-        # Start at scene start (natural cut point)
+        scene_dur = best_clip.duration_sec
+        render_mode = "window"
+        speed = 1.0
         clip_start = best_clip.start_sec
+        src_duration = target_dur
+
+        if scene_dur >= target_dur * SPEED_FIT_MAX:
+            # Long scene: cut a phrase-length window. Vary the offset so a
+            # reused scene shows different footage, not its opening frames.
+            max_off = scene_dur - target_dur - 0.1
+            if max_off > 0.5:
+                clip_start += float(np.random.uniform(0, max_off))
+        elif scene_dur >= target_dur * SPEED_FIT_MIN:
+            # Near fit: play the whole scene, speed-adjusted to land exactly
+            # (slow-mo below 1.0, speed-up above).
+            render_mode = "speedfit"
+            speed = scene_dur / target_dur
+            src_duration = scene_dur
+        elif best_clip.loopable:
+            # Detected seamless loop: repeat as-is.
+            render_mode = "loop"
+            src_duration = scene_dur
+        elif scene_dur <= PINGPONG_MAX_SCENE:
+            # Forward-reverse cycling fills any phrase from any short scene
+            # with no visible seam.
+            render_mode = "pingpong"
+            src_duration = scene_dur
+        else:
+            # Mid-length scene, too long to reverse in RAM: plain loop
+            # (jump cut at the loop point — rare; scenes 15s–0.7×phrase).
+            render_mode = "loop"
+            src_duration = scene_dur
 
         selections.append({
             "phrase_index": i,
@@ -1057,16 +1127,19 @@ def select_clips(scenes, phrase_features, style_hints=None):
             "audio_duration": phrase.duration_sec,
             "clip_source": best_clip.source_path,
             "clip_source_name": best_clip.source_name,
-            "clip_start": clip_start,
-            "clip_duration": clip_duration,
+            "scene_index": best_clip.scene_index,
+            "clip_start": round(clip_start, 3),
+            "clip_duration": round(target_dur, 4),
+            "n_frames": n_frames,
+            "render_mode": render_mode,
+            "speed": round(speed, 4),
+            "src_duration": round(src_duration, 3),
             "clip_motion": round(best_clip.motion_mean, 2),
             "clip_brightness": round(best_clip.brightness_mean, 3),
             "clip_color_temp": round(best_clip.color_temperature, 3),
             "match_score": round(best_score, 3),
             "audio_energy": phrase.energy,
             "track_title": phrase.track_title,
-            "loop_count": loop_count,
-            "scene_duration": best_clip.duration_sec if needs_loop else 0,
             "clip_quality": round(best_clip.quality_score, 2),
             "clip_cull_flags": best_clip.cull_flags,
         })
@@ -1087,6 +1160,8 @@ def select_clips(scenes, phrase_features, style_hints=None):
         selected_clips.append(best_clip)
 
         source_use_count[best_clip.source_name] = source_use_count.get(best_clip.source_name, 0) + 1
+        skey = (best_clip.source_name, best_clip.scene_index)
+        scene_use_count[skey] = scene_use_count.get(skey, 0) + 1
 
     return selections
 
@@ -1120,48 +1195,84 @@ def fmt_size(bytes_val):
 
 # ─── Video Assembly ────────────────────────────────────────────────────────
 
-def extract_clip(source_path, start_sec, duration_sec, output_path,
-                 loop_count=0, scene_duration=0):
-    """Extract clip, scale to 1080p. Optionally loop for loopable scenes."""
-    vf = ("scale=1920:1080:force_original_aspect_ratio=decrease,"
-          "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,setsar=1")
+BASE_VF = ("scale=1920:1080:force_original_aspect_ratio=decrease,"
+           "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,setsar=1")
+ENC_ARGS = ["-c:v", "libx264", "-crf", "20", "-preset", "fast", "-an"]
 
-    if loop_count > 0 and scene_duration > 0:
-        # Two-step: extract scene, then loop it
-        scene_clip = output_path.with_suffix(".scene.mp4")
-        cmd_scene = [
-            "ffmpeg", "-y", "-ss", str(start_sec), "-i", source_path,
-            "-t", str(scene_duration + 0.2),
-            "-vf", vf,
-            "-c:v", "libx264", "-crf", "20", "-preset", "fast",
-            "-an", "-r", "30", str(scene_clip)
-        ]
-        subprocess.run(cmd_scene, capture_output=True, timeout=120)
-        if not scene_clip.exists():
+
+def render_black_filler(output_path, n_frames):
+    """Black filler clip — a failed extraction must still occupy its frames,
+    otherwise every cut after it shifts off the audio timeline."""
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "lavfi",
+        "-i", f"color=c=black:s=1920x1080:r={FPS}",
+        "-frames:v", str(n_frames), *ENC_ARGS, str(output_path)
+    ], capture_output=True, timeout=120)
+    return output_path.exists() and output_path.stat().st_size > 0
+
+
+def extract_clip(source_path, start_sec, output_path, n_frames,
+                 render_mode="window", speed=1.0, src_duration=None):
+    """Render exactly n_frames at FPS from a source scene.
+
+    window   — cut n_frames straight from start_sec (scene ≥ phrase)
+    speedfit — play the whole scene speed-adjusted via setpts to land exactly
+    loop     — repeat the scene start-to-start (loopable-flagged or too long
+               to reverse)
+    pingpong — forward+reverse cycle repeated to fill (seamless for any scene)
+
+    All modes are frame-counted (-frames:v), never wall-clock (-t output):
+    the sync contract is "rendered frames == planned frames". tpad clones
+    the last frame as insurance against the source running dry a frame early.
+    """
+    if render_mode == "window":
+        cmd = ["ffmpeg", "-y", "-ss", str(start_sec), "-i", source_path,
+               "-vf", f"{BASE_VF},fps={FPS},tpad=stop_mode=clone:stop=8",
+               "-frames:v", str(n_frames), *ENC_ARGS, str(output_path)]
+        subprocess.run(cmd, capture_output=True, timeout=300)
+
+    elif render_mode == "speedfit":
+        # -t must be an INPUT option (before -i): it bounds how much source is
+        # read. As an output option it would cap the result at src_duration,
+        # silently undoing the setpts stretch.
+        cmd = ["ffmpeg", "-y", "-ss", str(start_sec), "-t", str(src_duration),
+               "-i", source_path,
+               "-vf", f"{BASE_VF},setpts=PTS/{speed:.6f},fps={FPS},"
+                      f"tpad=stop_mode=clone:stop=8",
+               "-frames:v", str(n_frames), *ENC_ARGS, str(output_path)]
+        subprocess.run(cmd, capture_output=True, timeout=300)
+
+    else:  # loop / pingpong — two-step via an intermediate cycle file
+        cycle = output_path.with_suffix(".cycle.mp4")
+        if render_mode == "pingpong":
+            cmd1 = ["ffmpeg", "-y", "-ss", str(start_sec), "-t", str(src_duration),
+                    "-i", source_path,
+                    "-filter_complex",
+                    # trim=start_frame=1 drops the reversed half's first frame
+                    # — it duplicates the forward half's last frame, which
+                    # stutters at the seam and gets dropped (with a timestamp
+                    # gap) by the later concat-copy.
+                    f"[0:v]{BASE_VF},fps={FPS},split[f][b];"
+                    f"[b]reverse,trim=start_frame=1,setpts=PTS-STARTPTS[r];"
+                    f"[f][r]concat=n=2:v=1[v]",
+                    "-map", "[v]", *ENC_ARGS, str(cycle)]
+        else:
+            cmd1 = ["ffmpeg", "-y", "-ss", str(start_sec), "-t", str(src_duration),
+                    "-i", source_path,
+                    "-vf", f"{BASE_VF},fps={FPS}", *ENC_ARGS, str(cycle)]
+        subprocess.run(cmd1, capture_output=True, timeout=300)
+        if not cycle.exists() or cycle.stat().st_size < 1000:
             return False
 
-        cmd_loop = [
-            "ffmpeg", "-y",
-            "-stream_loop", str(loop_count),
-            "-i", str(scene_clip),
-            "-t", str(duration_sec + 0.5),
-            "-c:v", "libx264", "-crf", "20", "-preset", "fast",
-            "-an", str(output_path)
-        ]
-        subprocess.run(cmd_loop, capture_output=True, timeout=120)
-        scene_clip.unlink(missing_ok=True)
-    else:
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", str(start_sec),
-            "-i", source_path,
-            "-t", str(duration_sec + 0.5),
-            "-vf", vf,
-            "-c:v", "libx264", "-crf", "20", "-preset", "fast",
-            "-an", "-r", "30",
-            str(output_path)
-        ]
-        subprocess.run(cmd, capture_output=True, timeout=120)
+        # Conservative cycle length (could be ±2 frames after fps rounding):
+        # underestimate so we always loop *enough*; surplus is trimmed.
+        per_pass = max(int(src_duration * FPS) - 2, 1)
+        cycle_frames = per_pass * (2 if render_mode == "pingpong" else 1)
+        loops = math.ceil(n_frames / cycle_frames)  # stream_loop N = N+1 plays
+        cmd2 = ["ffmpeg", "-y", "-stream_loop", str(loops), "-i", str(cycle),
+                "-frames:v", str(n_frames), *ENC_ARGS, str(output_path)]
+        subprocess.run(cmd2, capture_output=True, timeout=300)
+        cycle.unlink(missing_ok=True)
 
     return output_path.exists() and output_path.stat().st_size > 1000
 
@@ -1187,18 +1298,22 @@ def assemble_video(selections, output_path, audio_path, output_dir=None, global_
         clip_t0 = time.time()
 
         ok = extract_clip(
-            sel["clip_source"], sel["clip_start"],
-            sel["clip_duration"], clip_path,
-            loop_count=sel.get("loop_count", 0),
-            scene_duration=sel.get("scene_duration", 0),
+            sel["clip_source"], sel["clip_start"], clip_path,
+            n_frames=sel["n_frames"],
+            render_mode=sel.get("render_mode", "window"),
+            speed=sel.get("speed", 1.0),
+            src_duration=sel.get("src_duration"),
         )
+        if not ok:
+            # Frame-exact contract: a failed clip still occupies its frames
+            # (black filler) so later cuts stay on the audio timeline.
+            ok = render_black_filler(clip_path, sel["n_frames"])
+            failed += 1
         clip_elapsed = time.time() - clip_t0
         timings.append(clip_elapsed)
 
         if ok:
-            clip_paths.append((clip_path, sel["clip_duration"]))
-        else:
-            failed += 1
+            clip_paths.append((clip_path, sel))
 
         # Update global clip counter if in batch mode
         if global_state:
@@ -1228,20 +1343,46 @@ def assemble_video(selections, output_path, audio_path, output_dir=None, global_
     total_extract = time.time() - extract_start
     print(f"    {'─' * 68}")
     print(f"    Extracted: {len(clip_paths)}/{n_clips}"
-          f"  ({failed} failed)  in {fmt_time(total_extract)}")
+          f"  ({failed} failed → black filler)  in {fmt_time(total_extract)}")
 
     if not clip_paths:
         print("    ERROR: No clips extracted!")
         return
 
+    # ── Frame-count verification ────────────────────────────────────────
+    # The sync contract is "rendered frames == planned frames" per clip; any
+    # mismatch shifts every later cut off the audio timeline, so check all.
+    print(f"    Verifying frame counts...", end=" ", flush=True)
+    drift = 0
+    bad = []
+    for path, sel in clip_paths:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=nb_frames", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True)
+        try:
+            n = int(probe.stdout.strip())
+        except ValueError:
+            bad.append((path.name, "unreadable"))
+            continue
+        if n != sel["n_frames"]:
+            bad.append((path.name, f"{n} frames, planned {sel['n_frames']}"))
+            drift += n - sel["n_frames"]
+    if bad:
+        print(f"{len(bad)} clips off-plan (net drift {drift:+d} frames = {drift/FPS:+.2f}s)")
+        for name, msg in bad[:8]:
+            print(f"      {name}: {msg}")
+    else:
+        print(f"all {len(clip_paths)} clips frame-exact")
+
     # Build concat list
     concat_file = output_dir / "concat.txt"
     with open(concat_file, 'w') as f:
-        for path, dur in clip_paths:
+        for path, _ in clip_paths:
             f.write(f"file '{path.resolve()}'\n")
 
-    # Concatenate
-    video_duration = sum(dur for _, dur in clip_paths)
+    # Concatenate. Duration accounting uses planned frames — verified above.
+    video_duration = sum(sel["n_frames"] for _, sel in clip_paths) / FPS
     print(f"\n    Concatenating {len(clip_paths)} clips ({fmt_time(video_duration)})...",
           end=" ", flush=True)
     concat_t0 = time.time()
@@ -1454,6 +1595,18 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
 
     scores = [s["match_score"] for s in selections]
     print(f"    Scores: mean={np.mean(scores):.2f}  min={min(scores):.2f}  max={max(scores):.2f}")
+
+    mode_counts = {}
+    for s in selections:
+        mode_counts[s["render_mode"]] = mode_counts.get(s["render_mode"], 0) + 1
+    distinct_scenes = len(set((s["clip_source_name"], s["scene_index"]) for s in selections))
+    speeds = [s["speed"] for s in selections if s["render_mode"] == "speedfit"]
+    speed_info = (f"  |  speedfit range {min(speeds):.2f}x–{max(speeds):.2f}x"
+                  if speeds else "")
+    print(f"    Render modes: "
+          + "  ".join(f"{m}:{c}" for m, c in sorted(mode_counts.items(), key=lambda x: -x[1]))
+          + speed_info)
+    print(f"    Distinct scenes: {distinct_scenes}/{len(selections)}")
 
     # ── 4b. Perceptual diversity logger (Phase D) ──
     # Operates on the FINAL ordered selection (post-weighted-random) so it
