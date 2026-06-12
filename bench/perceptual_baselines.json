@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "label": "post_salvage_2026-06",
-  "assembler_commit": "2de30ef",
+  "label": "post_tagging_2026-06",
+  "assembler_commit": "e59e67d",
   "phrase_bars": 4,
   "seed": 42,
   "sets": {
@@ -9,18 +9,18 @@
       "n_selections": 534,
       "n_excluded": 0,
       "n_consec_pairs": 533,
-      "consec_mean": 0.6940551963241641,
-      "consec_median": 0.6952838897705078,
-      "consec_p90": 0.8065374255180359,
-      "consec_p95": 0.8317233681678772,
+      "consec_mean": 0.6920997493150758,
+      "consec_median": 0.6960300207138062,
+      "consec_p90": 0.805741035938263,
+      "consec_p95": 0.8289277791976929,
       "close_pairs_w5": {
-        "0.85": 51,
-        "0.8": 316,
-        "0.75": 751
+        "0.85": 54,
+        "0.8": 275,
+        "0.75": 746
       },
       "close_pairs_w30": {
-        "0.9": 33,
-        "0.85": 335
+        "0.9": 31,
+        "0.85": 313
       },
       "distinct_sources_used": 41,
       "max_single_source_count": 21
@@ -29,18 +29,18 @@
       "n_selections": 699,
       "n_excluded": 0,
       "n_consec_pairs": 698,
-      "consec_mean": 0.6907493618549112,
-      "consec_median": 0.693628579378128,
-      "consec_p90": 0.8066593885421753,
-      "consec_p95": 0.8272330820560455,
+      "consec_mean": 0.6926717914875735,
+      "consec_median": 0.6978723704814911,
+      "consec_p90": 0.8014392137527466,
+      "consec_p95": 0.8256341248750687,
       "close_pairs_w5": {
-        "0.85": 56,
-        "0.8": 410,
-        "0.75": 953
+        "0.85": 61,
+        "0.8": 345,
+        "0.75": 947
       },
       "close_pairs_w30": {
-        "0.9": 39,
-        "0.85": 436
+        "0.9": 36,
+        "0.85": 435
       },
       "distinct_sources_used": 41,
       "max_single_source_count": 29
@@ -49,21 +49,21 @@
       "n_selections": 572,
       "n_excluded": 0,
       "n_consec_pairs": 571,
-      "consec_mean": 0.6926771286490084,
-      "consec_median": 0.6903913617134094,
-      "consec_p90": 0.8043948411941528,
-      "consec_p95": 0.8269523680210114,
+      "consec_mean": 0.6922206227812792,
+      "consec_median": 0.6933647990226746,
+      "consec_p90": 0.7968713045120239,
+      "consec_p95": 0.8238949477672577,
       "close_pairs_w5": {
-        "0.85": 51,
-        "0.8": 303,
-        "0.75": 752
+        "0.85": 56,
+        "0.8": 308,
+        "0.75": 792
       },
       "close_pairs_w30": {
-        "0.9": 29,
-        "0.85": 351
+        "0.9": 26,
+        "0.85": 329
       },
       "distinct_sources_used": 41,
-      "max_single_source_count": 23
+      "max_single_source_count": 22
     }
   }
 }

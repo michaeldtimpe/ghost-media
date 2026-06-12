@@ -142,6 +142,11 @@ BEATLOOP_SPEED_MIN = 0.8
 BEATLOOP_SPEED_MAX = 1.25
 BEATLOOP_BPM_MIN = 60.0    # distrust phrase BPM outside this band
 BEATLOOP_BPM_MAX = 200.0
+
+# Canonical lyric↔tag matching: exclude canonical terms that tag more than
+# this fraction of the corpus — ubiquitous terms ('abstract' in an
+# abstract-art corpus) make the lyric bonus indiscriminate.
+CANON_MATCH_MAX_DF = 0.03
 PINGPONG_MAX_SCENE = 15.0  # ping-pong only for scenes ≤ this — ffmpeg reverse buffers
                            # the whole clip in RAM (~3 MB/frame at 1080p)
 
@@ -195,6 +200,10 @@ class SceneClip:
     mood_energy: str
     content_tags: list
     has_semantic: bool
+    # Canonicalized content_tags (scripts/canonicalize_tags.py): free-form
+    # VLM tags mapped onto the ~200-term canonical vocabulary so synonyms
+    # ("sea"/"ocean") land on the same term for lyric matching.
+    canonical_tags: list = field(default_factory=list)
     # Loop detection
     loopable: bool = False
     loop_similarity: float = 0.0
@@ -213,6 +222,10 @@ class SceneClip:
     # Percentile rank of motion_std across the full scene database (0-1).
     # Populated post-build by _assign_motion_std_ranks; used by onset_match.
     motion_std_rank: float = 0.5
+    # Percentile rank of motion_mean across the corpus (0-1). Motion magnitude
+    # spans ~600x between sources (lessons.md), so the raw /15 normalization
+    # saturates; the rank side of dim 1 is scale-free.
+    motion_mean_rank: float = 0.5
 
 
 def compute_color_temperature(colors):
@@ -468,6 +481,8 @@ def build_scene_database(text_seconds=None, salvage=True):
                     visual_style=style,
                     mood_energy=mood.get("energy", ""),
                     content_tags=tags,
+                    canonical_tags=(semantic.get("canonical_tags", [])
+                                    if semantic else []),
                     has_semantic=has_semantic,
                     # The SSIM loop check validated the PARENT's first/last
                     # frames; a trimmed sub-range has different endpoints.
@@ -521,6 +536,10 @@ def build_scene_database(text_seconds=None, salvage=True):
         ranks = stds.argsort().argsort().astype(np.float32) / max(len(stds) - 1, 1)
         for c, r in zip(scenes, ranks):
             c.motion_std_rank = float(r)
+        means = np.array([c.motion_mean for c in scenes])
+        m_ranks = means.argsort().argsort().astype(np.float32) / max(len(means) - 1, 1)
+        for c, r in zip(scenes, m_ranks):
+            c.motion_mean_rank = float(r)
 
     if n_salvaged_scenes:
         print(f"    Salvage: {n_subclips} sub-scenes from {n_salvaged_scenes} "
@@ -556,6 +575,8 @@ class PhraseFeatures:
     # using divisor calibrated from the actual bpm_timeline range (Phase 0).
     bpm_confidence: float = 1.0
     lyrics_keywords: list = field(default_factory=list)  # keywords from vocals
+    # lyrics_keywords mapped onto the canonical tag vocabulary (run_set 3c).
+    canonical_keywords: list = field(default_factory=list)
     clip_text_embedding: np.ndarray = None  # CLIP text encoding of lyrics
 
 
@@ -814,9 +835,14 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
     energy_response = style_hints.get("energy_response", "follow")
     target_energy = phrase.energy if energy_response == "follow" else (1.0 - phrase.energy)
 
-    # 1. Motion-energy match (visual motion should match audio energy)
+    # 1. Motion-energy match (visual motion should match audio energy).
+    #    Blend of raw /15 normalization (absolute: a static clip is static
+    #    everywhere) and corpus percentile rank (scale-free: motion magnitude
+    #    spans ~600x between sources, so raw saturates for whole sources).
+    #    Landed soft at 50/50; ratchet after baseline comparison.
     clip_motion_norm = min(clip.motion_mean / 15.0, 1.0)
-    motion_match = 1.0 - abs(clip_motion_norm - target_energy)
+    motion_match = 0.5 * (1.0 - abs(clip_motion_norm - target_energy)) \
+        + 0.5 * (1.0 - abs(clip.motion_mean_rank - target_energy))
 
     # 2. Brightness match (bright audio → bright visuals)
     bright_match = 1.0 - abs(clip.brightness_mean - phrase.brightness_audio)
@@ -892,13 +918,16 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
             break
 
     # 9. Lyrics-visual matching
-    #    Match lyric keywords against clip content_tags and visual description keywords
+    #    Exact lexical matches PLUS canonical-vocabulary matches, so synonyms
+    #    ("ocean" lyric ↔ "sea" tag → both canonical "water") finally count.
     lyrics_bonus = 0.0
     if phrase.lyrics_keywords and clip.has_semantic and clip.content_tags:
         lyric_set = set(kw.lower() for kw in phrase.lyrics_keywords)
         tag_set = set(tag.lower() for tag in clip.content_tags)
-        # Count matching keywords
         matches = lyric_set & tag_set
+        if phrase.canonical_keywords and clip.canonical_tags:
+            matches = matches | (set(phrase.canonical_keywords)
+                                 & set(clip.canonical_tags))
         if matches:
             # Scaled bonus: more matches = bigger bonus, but diminishing
             lyrics_bonus = min(len(matches) * 0.25, 0.8)
@@ -1912,6 +1941,39 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
                 pf.clip_text_embedding = feat.cpu().numpy()[0].astype(np.float32)
                 encoded += 1
             print(f"    CLIP text embeddings: {encoded} phrases encoded")
+
+            # Map lyric keywords onto the canonical tag vocabulary so the
+            # lyric↔tag dimension matches synonyms ("ocean" ↔ "sea"), not
+            # just exact strings. Two deliberate restrictions (calibrated on
+            # the 5-set corpus — see PR #13):
+            #  - mapping-ONLY: a lyric word maps only if it ever appeared as
+            #    a corpus tag. Free CLIP-cosine mapping of arbitrary words is
+            #    junk-prone ('tryna' → 'dynamic' at 0.95).
+            #  - DF filter: canonical terms tagging more than
+            #    CANON_MATCH_MAX_DF of the corpus carry no signal in this
+            #    corpus ('abstract', 'dynamic') and are excluded from
+            #    lyric matching.
+            vocab_path = BASE_DIR / "canonical_tags.json"
+            if vocab_path.exists():
+                vocab = json.loads(vocab_path.read_text())
+                kw_map = dict(vocab.get("mapping", {}))
+                df = {}
+                for sc in scenes:
+                    for t in set(sc.canonical_tags):
+                        df[t] = df.get(t, 0) + 1
+                selective = {t for t in vocab["terms"]
+                             if df.get(t, 0) / max(len(scenes), 1) <= CANON_MATCH_MAX_DF}
+                mapped_phrases = 0
+                for pf in phrases_with_lyrics:
+                    canon = sorted({kw_map[kw.lower()] for kw in pf.lyrics_keywords
+                                    if kw_map.get(kw.lower()) in selective})
+                    if canon:
+                        pf.canonical_keywords = canon
+                        mapped_phrases += 1
+                print(f"    Canonical lyric keywords: {mapped_phrases} phrases mapped "
+                      f"({len(selective)}/{len(vocab['terms'])} selective terms, "
+                      f"DF ≤ {CANON_MATCH_MAX_DF:.0%})")
+
             del clip_model  # free memory
         except ImportError:
             print(f"    CLIP text encoding skipped (open_clip not installed)")

@@ -69,6 +69,14 @@ def main():
     check("score_scene runs with lyrics+CLIP active", isinstance(sr, float))
     check("rich scene (lyric+CLIP match) outscores plain", sr > sp)
 
+    # 1b. Canonical lyric↔tag matching: disjoint lexical tags, shared
+    #     canonical term → bonus fires (the "ocean ↔ sea" case).
+    s_sea = _clip(content_tags=["sea"], canonical_tags=["water"])
+    s_none = _clip(content_tags=["sea"], canonical_tags=[])
+    ph_ocean = _phrase(lyrics_keywords=["ocean"], canonical_keywords=["water"])
+    check("canonical synonym match scores higher",
+          a.score_scene(s_sea, ph_ocean) > a.score_scene(s_none, ph_ocean))
+
     # 2. select_clips over a mixed database, multiple phrases.
     sels = a.select_clips([s_rich, s_plain], [ph, _phrase(start_sec=5, end_sec=10)])
     check("select_clips returns one selection per phrase", len(sels) == 2)
