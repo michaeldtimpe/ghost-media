@@ -25,7 +25,11 @@ import sys as _sys
 _sys.path.insert(0, str(BASE_DIR))
 import media_paths as _mp
 ARCHIVE_SOURCE_DIR = _mp.FOOTAGE_ROOT / "raw"
-SOURCE_DIRS = [LOCAL_SOURCE_DIR, ARCHIVE_SOURCE_DIR]
+# All library collections (resolve_source searches flat dirs in order).
+_COLLECTION_DIRS = (sorted(d for d in _mp.FOOTAGE_ROOT.iterdir()
+                           if d.is_dir() and d.name != "_staging")
+                    if _mp.FOOTAGE_ROOT.exists() else [ARCHIVE_SOURCE_DIR])
+SOURCE_DIRS = [LOCAL_SOURCE_DIR, *_COLLECTION_DIRS]
 SOURCE_DIR = ARCHIVE_SOURCE_DIR  # back-compat alias
 
 BENCH_DIR = BASE_DIR / "bench"
