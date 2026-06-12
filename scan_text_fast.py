@@ -26,9 +26,6 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("ignore", message=".*pin_memory.*")
 
-import cv2
-import easyocr
-import numpy as np
 
 # ─── Configuration ─────────────────────────────────────────────────────────
 
@@ -60,145 +57,17 @@ Answer with ONLY a JSON object:
 {"has_english_text": true/false, "description": "brief description of what text if any"}"""
 
 
-# ─── EAST Text Detector ──────────────────────────────────────────────────
-
-_east_net = None
-
-def _ensure_east_model():
-    """Download EAST model if not cached."""
-    if EAST_MODEL_PATH.exists():
-        return
-    EAST_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    print(f"    Downloading EAST text detector...", end=" ", flush=True)
-    urllib.request.urlretrieve(EAST_MODEL_URL, str(EAST_MODEL_PATH))
-    print(f"done ({EAST_MODEL_PATH.stat().st_size / 1e6:.1f} MB)")
-
-
-def _get_east_net():
-    """Load EAST model (cached singleton)."""
-    global _east_net
-    if _east_net is None:
-        _ensure_east_model()
-        _east_net = cv2.dnn.readNet(str(EAST_MODEL_PATH))
-    return _east_net
-
-
-def detect_text_east(image_path):
-    """Detect text regions using EAST. Returns (has_text, num_regions, elapsed)."""
-    t0 = time.time()
-    img = cv2.imread(str(image_path))
-    if img is None:
-        return None, 0, time.time() - t0
-
-    h, w = img.shape[:2]
-    blob = cv2.dnn.blobFromImage(img, 1.0, EAST_INPUT_SIZE,
-                                  (123.68, 116.78, 103.94), True, False)
-
-    net = _get_east_net()
-    net.setInput(blob)
-    scores, geometry = net.forward([
-        "feature_fusion/Conv_7/Sigmoid",
-        "feature_fusion/concat_3"
-    ])
-
-    rows = scores.shape[2]
-    cols = scores.shape[3]
-
-    rects = []
-    confidences = []
-
-    for y in range(rows):
-        scores_data = scores[0, 0, y]
-        x0 = geometry[0, 0, y]
-        x1 = geometry[0, 1, y]
-        x2 = geometry[0, 2, y]
-        x3 = geometry[0, 3, y]
-        angles = geometry[0, 4, y]
-
-        for x in range(cols):
-            if scores_data[x] < EAST_CONFIDENCE:
-                continue
-
-            offset_x = x * 4.0
-            offset_y = y * 4.0
-            angle = angles[x]
-            cos_a = np.cos(angle)
-            sin_a = np.sin(angle)
-
-            h_box = x0[x] + x2[x]
-            w_box = x1[x] + x3[x]
-
-            end_x = int(offset_x + cos_a * x1[x] + sin_a * x2[x])
-            end_y = int(offset_y - sin_a * x1[x] + cos_a * x2[x])
-            start_x = int(end_x - w_box)
-            start_y = int(end_y - h_box)
-
-            rects.append((start_x, start_y, end_x, end_y))
-            confidences.append(float(scores_data[x]))
-
-    if not rects:
-        return False, 0, time.time() - t0
-
-    boxes_for_nms = [[r[0], r[1], r[2] - r[0], r[3] - r[1]] for r in rects]
-    indices = cv2.dnn.NMSBoxes(boxes_for_nms, confidences,
-                                EAST_CONFIDENCE, EAST_NMS_THRESHOLD)
-    n_regions = len(indices) if len(indices) > 0 else 0
-
-    elapsed = time.time() - t0
-    return n_regions > 0, n_regions, elapsed
-
-
-# ─── EasyOCR Verification ─────────────────────────────────────────────────
-
-_ocr_reader = None
-MIN_OCR_WORD_LEN = 3       # ignore OCR results shorter than this
-MIN_OCR_CONFIDENCE = 0.3    # ignore low-confidence OCR detections
-
-def _get_ocr_reader():
-    """Load EasyOCR reader (cached singleton)."""
-    global _ocr_reader
-    if _ocr_reader is None:
-        _ocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
-    return _ocr_reader
-
-
-def verify_text_ocr(image_path):
-    """Run EasyOCR on a frame. Returns (has_english_text, description, elapsed)."""
-    t0 = time.time()
-    reader = _get_ocr_reader()
-    results = reader.readtext(str(image_path), detail=1)
-
-    # Filter: keep only results with readable English words (not just numbers/symbols)
-    words = []
-    for bbox, text, conf in results:
-        text = text.strip()
-        if conf >= MIN_OCR_CONFIDENCE and len(text) >= MIN_OCR_WORD_LEN:
-            # Skip purely numeric/binary/symbolic strings
-            alpha_chars = sum(1 for c in text if c.isalpha())
-            if alpha_chars >= 2:
-                words.append(text)
-
-    elapsed = time.time() - t0
-    if words:
-        desc = ", ".join(words[:10])
-        return True, desc, elapsed
-    return False, "", elapsed
-
-
-# ─── Helpers ───────────────────────────────────────────────────────────────
-
-def extract_frame(video_path, time_sec, output_path):
-    if output_path.exists() and output_path.stat().st_size > 0:
-        return True
-    try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(time_sec), "-i", str(video_path),
-             "-frames:v", "1", "-q:v", "2", str(output_path)],
-            capture_output=True, timeout=30
-        )
-        return output_path.exists() and output_path.stat().st_size > 0
-    except Exception:
-        return False
+# ─── Text detection (shared with scripts/check_render_text.py) ────────────
+# EAST + EasyOCR machinery lives in text_detect.py; this module keeps the
+# scanning strategy (coarse scan, binary-search refinement, flag building).
+from text_detect import (  # noqa: E402
+    EAST_CONFIDENCE,
+    detect_text_east,
+    extract_frame,
+    get_east_net as _get_east_net,
+    get_ocr_reader as _get_ocr_reader,
+    verify_text_ocr,
+)
 
 
 def check_ollama():
