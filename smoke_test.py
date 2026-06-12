@@ -92,10 +92,76 @@ def main():
     check("comma-string tags → list", clean_an["content_tags"] == ["fire", "sky", "love"])
     check("corrections recorded in _validation", "_validation" in clean_an and bool(notes))
 
+    cut_timing_checks()
     bench_checks(rng)
 
     print("  " + "─" * 60)
     print("  ALL CHECKS PASSED\n")
+
+
+def cut_timing_checks():
+    """Beat snapping + vocal-aware boundary adjustment (cut-timing fixes)."""
+    print("\n  CUT TIMING")
+    print("  " + "─" * 60)
+
+    # _snap_to_beat: nearest beat, both directions, and graceful no-grid.
+    grid = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
+    check("snap down", a._snap_to_beat(0.71, grid) == 0.5)
+    check("snap up", a._snap_to_beat(0.79, grid) == 1.0)
+    check("snap exact is identity", a._snap_to_beat(1.5, grid) == 1.5)
+    check("snap past last beat clamps", a._snap_to_beat(9.9, grid) == 2.0)
+    check("no grid → unchanged", a._snap_to_beat(0.71, None) == 0.71)
+
+    # _schema_tuple gating
+    check("schema 2.1.0 < (2,2)", a._schema_tuple({"schema_version": "2.1.0"}) < (2, 2))
+    check("schema 2.2.0 >= (2,2)", a._schema_tuple({"schema_version": "2.2.0"}) >= (2, 2))
+    check("garbage schema → (0,0)", a._schema_tuple({"schema_version": "?"}) == (0, 0))
+
+    # adjust_cuts_for_vocals: 120 BPM beat grid, two 8s phrases with the
+    # boundary at 8.0s landing inside the word "fire" (7.9–8.2s).
+    beats = [round(i * 0.5, 4) for i in range(40)]
+    segs = [{"start_sec": 7.0, "end_sec": 9.0, "words": [
+        {"word": "set", "start": 7.0, "end": 7.3},
+        {"word": "fire", "start": 7.9, "end": 8.2},
+    ]}]
+    p1, p2 = _phrase(start_sec=0.0, end_sec=8.0, duration_sec=8.0), \
+        _phrase(start_sec=8.0, end_sec=16.0, duration_sec=8.0)
+    pfs, moved, merged = a.adjust_cuts_for_vocals([p1, p2], segs, beats)
+    check("mid-word boundary moved", moved == 1 and merged == 0 and len(pfs) == 2)
+    check("moved to a word-clear beat", p1.end_sec in (7.0, 7.5, 9.0)
+          and not (7.9 - a.VOCAL_WORD_PAD_SEC < p1.end_sec < 8.2 + a.VOCAL_WORD_PAD_SEC))
+    check("end/start stay a matched pair", p1.end_sec == p2.start_sec)
+    check("durations updated", abs(p1.duration_sec - p1.end_sec) < 1e-9
+          and abs(p2.duration_sec - (16.0 - p2.start_sec)) < 1e-9)
+
+    # Continuous vocals across every candidate beat → merge the boundary away
+    # (combined 16s ≤ VOCAL_MERGE_MAX_SEC).
+    dense = [{"start_sec": 6.0, "end_sec": 10.0, "words": [
+        {"word": f"w{i}", "start": 6.0 + i * 0.4, "end": 6.39 + i * 0.4}
+        for i in range(10)
+    ]}]
+    p1, p2 = _phrase(start_sec=0.0, end_sec=8.0, duration_sec=8.0), \
+        _phrase(start_sec=8.0, end_sec=16.0, duration_sec=8.0)
+    pfs, moved, merged = a.adjust_cuts_for_vocals([p1, p2], dense, beats)
+    check("continuous vocals → boundary merged away",
+          merged == 1 and len(pfs) == 1
+          and pfs[0].start_sec == 0.0 and pfs[0].end_sec == 16.0
+          and abs(pfs[0].duration_sec - 16.0) < 1e-9)
+
+    # Continuous vocals but merge would exceed the cap → boundary stays put.
+    p1, p2 = _phrase(start_sec=0.0, end_sec=8.0, duration_sec=8.0), \
+        _phrase(start_sec=8.0, end_sec=8.0 + a.VOCAL_MERGE_MAX_SEC,
+                duration_sec=a.VOCAL_MERGE_MAX_SEC)
+    pfs, moved, merged = a.adjust_cuts_for_vocals([p1, p2], dense, beats)
+    check("over-cap merge skipped → boundary unmoved",
+          merged == 0 and len(pfs) == 2 and pfs[0].end_sec == 8.0)
+
+    # Boundary clear of any word → untouched.
+    p1, p2 = _phrase(start_sec=0.0, end_sec=4.0, duration_sec=4.0), \
+        _phrase(start_sec=4.0, end_sec=16.0, duration_sec=12.0)
+    pfs, moved, merged = a.adjust_cuts_for_vocals([p1, p2], segs, beats)
+    check("word-clear boundary untouched",
+          moved == 0 and merged == 0 and pfs[0].end_sec == 4.0)
 
 
 def bench_checks(rng):

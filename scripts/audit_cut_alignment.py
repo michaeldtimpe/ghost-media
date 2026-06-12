@@ -47,8 +47,8 @@ BEAT_DIST_BUCKETS_MS = [17, 33, 50, 100, 250]
 
 
 def phrase_boundaries_fresh(set_name: str, phrase_bars: int) -> tuple[list, dict]:
-    """Recompute merged phrase features the same way run_set does; return
-    (phrase_features, analysis_data)."""
+    """Recompute merged + vocal-adjusted phrase features the same way run_set
+    does; return (phrase_features, analysis_data)."""
     set_config = av.SET_CONFIGS[set_name]
     analysis_path = av.BASE_DIR / "sets" / set_config["analysis"]
     if not analysis_path.exists():
@@ -58,19 +58,27 @@ def phrase_boundaries_fresh(set_name: str, phrase_bars: int) -> tuple[list, dict
     phrases = data["phrases"][phrase_key]
     phrase_features = av.extract_phrase_features(data, phrases)
     phrase_features = av.merge_phrases_adaptive(phrase_features)
+    lyrics_path = av.BASE_DIR / "sets" / f"{set_name}.lyrics.json"
+    if lyrics_path.exists():
+        lyrics_data = json.loads(lyrics_path.read_text())
+        phrase_features, _, _ = av.adjust_cuts_for_vocals(
+            phrase_features, lyrics_data.get("segments", []),
+            data.get("beats", {}).get("times_sec", []))
     return phrase_features, data
 
 
-def cut_times_from_phrases(phrase_features) -> tuple[list[float], list[float]]:
-    """Replicate select_clips' frame-exact plan arithmetic. Returns
-    (cut_times, next_phrase_starts): the audio-timeline instant of each
+def cut_times_from_phrases(phrase_features, beat_times) -> tuple[list[float], list[float]]:
+    """Replicate select_clips' frame-exact plan arithmetic (incl. beat snap).
+    Returns (cut_times, next_phrase_starts): the audio-timeline instant of each
     interior cut (clip i → clip i+1) and the start_sec of the phrase that
     begins at that cut."""
+    beat_grid = np.asarray(beat_times, dtype=np.float64) if len(beat_times) else None
     timeline_start = phrase_features[0].start_sec
     frames_emitted = 0
     cuts, next_starts = [], []
     for i, phrase in enumerate(phrase_features):
-        end_frame = int(round((phrase.end_sec - timeline_start) * av.FPS))
+        end_frame = int(round((av._snap_to_beat(phrase.end_sec, beat_grid)
+                               - timeline_start) * av.FPS))
         n_frames = max(end_frame - frames_emitted, av.FPS)  # never under 1s
         frames_emitted += n_frames
         if i < len(phrase_features) - 1:  # interior boundary only
@@ -134,7 +142,8 @@ def audit_set(set_name: str, phrase_bars: int, plan_path: Path | None) -> dict:
         _, data = phrase_boundaries_fresh(set_name, phrase_bars)
     else:
         phrase_features, data = phrase_boundaries_fresh(set_name, phrase_bars)
-        cuts, next_starts = cut_times_from_phrases(phrase_features)
+        cuts, next_starts = cut_times_from_phrases(
+            phrase_features, data.get("beats", {}).get("times_sec", []))
 
     beat_times = np.array(data.get("beats", {}).get("times_sec", []), dtype=np.float64)
     downbeats = np.array(data.get("beats", {}).get("downbeats_sec", []), dtype=np.float64)

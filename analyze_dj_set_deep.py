@@ -366,6 +366,97 @@ def validate_beat_grid(beat_times, bpm_timeline, global_bpm):
     return result
 
 
+# ─── BPM-Timeline Repair ───────────────────────────────────────────────────
+
+# Rolling-median window for octave-lock detection, in timeline entries
+# (2s hop → 31 entries ≈ 62s). Wide enough that the documented 7–15-window
+# locked runs (lessons.md) stay a minority of the window and get caught.
+BPM_REPAIR_MEDIAN_WINDOW = 31
+# Confidence multiplier for folded windows: the BPM value is corrected but
+# the tracker was confused there, so downstream consumers (assembler
+# dur_match weighting) should distrust these windows.
+OCTAVE_CONFIDENCE_PENALTY = 0.25
+
+
+def repair_bpm_timeline(bpm_timeline):
+    """Fold half/double-tempo locked windows back onto the local tempo.
+
+    librosa's tempogram locks at 0.5×/2× during DJ transitions (3/5 sets had
+    56–120s runs; lessons.md). Each window's BPM is compared to a rolling
+    median; ratios in the octave bands fold by 2×/0.5× and keep a penalized
+    confidence. Mutates in place; returns (timeline, corrected_times).
+    """
+    if not bpm_timeline:
+        return bpm_timeline, []
+    bpms = np.array([b["bpm"] for b in bpm_timeline], dtype=np.float64)
+    n = len(bpms)
+    half = BPM_REPAIR_MEDIAN_WINDOW // 2
+    corrected_times = []
+    for i, entry in enumerate(bpm_timeline):
+        local_median = float(np.median(bpms[max(0, i - half):min(n, i + half + 1)]))
+        if local_median <= 0:
+            continue
+        ratio = entry["bpm"] / local_median
+        if 0.45 <= ratio <= 0.55:
+            factor = 2.0
+        elif 1.9 <= ratio <= 2.1:
+            factor = 0.5
+        else:
+            continue
+        entry["bpm"] = round(entry["bpm"] * factor, 2)
+        entry["confidence"] = round(entry["confidence"] * OCTAVE_CONFIDENCE_PENALTY, 3)
+        corrected_times.append(entry["time_sec"])
+    return bpm_timeline, corrected_times
+
+
+# ─── Downbeat / Phrase-Anchor Estimation ──────────────────────────────────
+
+def estimate_downbeats(beat_times, multiband_timeline, beats_per_bar=4):
+    """Estimate which beat phase carries the downbeats via bass-arrival voting.
+
+    Scores each phase offset by the mean positive delta of (sub_bass + bass)
+    energy arriving at its beats — kick re-entry lands on bar/phrase starts.
+    HEURISTIC: on the 5-set corpus the candidate signals (bass arrival, |ΔRMS|,
+    brilliance arrival) disagree on phase, so this is persisted for
+    observability and audit only; phrase anchoring stays opt-in
+    (--anchor-phrases) until validated by ear. See lessons.md.
+    """
+    bt = np.asarray(beat_times, dtype=np.float64)
+    result = {
+        "estimator": "bass-arrival-heuristic",
+        "bar_offset": 0,
+        "phrase_offset_16": 0,
+        "bar_margin": 0.0,
+        "phrase_margin": 0.0,
+        "downbeats_sec": [round(float(t), 4) for t in bt[::beats_per_bar]],
+    }
+    if len(bt) < beats_per_bar * 8 or not multiband_timeline:
+        return result
+
+    times = np.array([m["time_sec"] for m in multiband_timeline], dtype=np.float64)
+    bass = np.array([m["sub_bass"] + m["bass"] for m in multiband_timeline], dtype=np.float64)
+    beat_bass = np.interp(bt, times, bass)
+    arrival = np.concatenate([[0.0], np.clip(np.diff(beat_bass), 0.0, None)])
+
+    def phase_scores(period):
+        scores = np.array([arrival[p::period].mean() for p in range(period)])
+        best = int(np.argmax(scores))
+        median = float(np.median(scores))
+        margin = (float(scores[best]) - median) / (median + 1e-10)
+        return best, margin, scores
+
+    bar_offset, bar_margin, _ = phase_scores(beats_per_bar)
+    phrase_offset, phrase_margin, _ = phase_scores(beats_per_bar * 4)
+    result.update({
+        "bar_offset": bar_offset,
+        "phrase_offset_16": phrase_offset,
+        "bar_margin": round(bar_margin, 4),
+        "phrase_margin": round(phrase_margin, 4),
+        "downbeats_sec": [round(float(t), 4) for t in bt[bar_offset::beats_per_bar]],
+    })
+    return result
+
+
 # ─── Beat Grid with Features ──────────────────────────────────────────────
 
 def compute_beat_features(y, sr, beat_times, S, freqs, hop_length):
@@ -411,22 +502,45 @@ def compute_beat_features(y, sr, beat_times, S, freqs, hop_length):
 
 # ─── Phrase Detection ──────────────────────────────────────────────────────
 
-def detect_phrases(beat_times, beat_features, beats_per_bar=4):
-    """Detect 4-bar, 8-bar, and 16-bar phrases with per-phrase energy stats."""
+def detect_phrases(beat_times, beat_features, beats_per_bar=4, anchor_offset=0):
+    """Detect 4-bar, 8-bar, and 16-bar phrases with per-phrase energy stats.
+
+    Schema 2.2.0: end_sec is the start of the NEXT phrase (the beat after the
+    chunk's last beat), so [start_sec, end_sec) spans the full musical phrase.
+    Pre-2.2.0 set end_sec to the last beat's timestamp, undershooting by one
+    beat — every assembler cut landed one beat early (cut-alignment audit:
+    median cut→next-phrase gap = exactly one beat period on all 5 sets).
+
+    anchor_offset shifts the chunk grid to start at a downbeat estimate
+    (beats before the anchor form a leading stub phrase). Default 0: the
+    downbeat estimators disagree on this corpus (see lessons.md), so
+    anchoring is opt-in via --anchor-phrases until validated by ear.
+    """
+    median_ioi = float(np.median(np.diff(beat_times))) if len(beat_times) > 2 else 0.5
     phrases = {}
     for phrase_bars, label in [(4, "four_bar"), (8, "eight_bar"), (16, "sixteen_bar")]:
         beats_per_phrase = beats_per_bar * phrase_bars
+        starts = list(range(anchor_offset, len(beat_times), beats_per_phrase))
+        if anchor_offset >= beats_per_bar:
+            starts.insert(0, 0)  # leading stub phrase before the first anchor
+        elif anchor_offset > 0 and starts:
+            starts[0] = 0  # fold a sub-bar lead-in into the first phrase
         phrase_list = []
-        for i in range(0, len(beat_times), beats_per_phrase):
-            chunk_times = beat_times[i:i + beats_per_phrase]
-            chunk_feats = beat_features[i:i + beats_per_phrase]
+        for n, i in enumerate(starts):
+            stop = starts[n + 1] if n + 1 < len(starts) else i + beats_per_phrase
+            chunk_times = beat_times[i:stop]
+            chunk_feats = beat_features[i:stop]
             if len(chunk_times) < beats_per_bar:
                 break
             energies = [f["energy"] for f in chunk_feats]
+            # End at the next beat after the chunk — the true phrase span.
+            next_beat_idx = i + len(chunk_times)
+            end_sec = (beat_times[next_beat_idx] if next_beat_idx < len(beat_times)
+                       else chunk_times[-1] + median_ioi)
             phrase_list.append({
                 "phrase_index": len(phrase_list),
                 "start_sec": round(chunk_times[0], 4),
-                "end_sec": round(chunk_times[-1], 4),
+                "end_sec": round(end_sec, 4),
                 "beat_count": len(chunk_times),
                 "bars": len(chunk_times) // beats_per_bar,
                 "energy_mean": round(float(np.mean(energies)), 6),
@@ -672,7 +786,7 @@ def detect_key_windowed(y, sr, window_sec=30, hop_sec=10):
 
 # ─── Main Pipeline ─────────────────────────────────────────────────────────
 
-def analyze_deep(audio_path, tracklist_path=None):
+def analyze_deep(audio_path, tracklist_path=None, anchor_phrases=False):
     audio_path = Path(audio_path)
     if not audio_path.exists():
         print(f"  ERROR: File not found: {audio_path}")
@@ -747,10 +861,18 @@ def analyze_deep(audio_path, tracklist_path=None):
     beat_features = compute_beat_features(y, sr, beat_times, S, freqs, HOP_LENGTH)
     print(f"{len(beat_features)} beats ({time.time() - t0:.1f}s)")
 
+    # ── Downbeat / phrase-anchor estimation ──
+    downbeats = estimate_downbeats(beat_times, multiband_timeline)
+    anchor_offset = 0
+    if anchor_phrases:
+        anchor_offset = downbeats["phrase_offset_16"]
+        print(f"  Anchoring phrases at beat {anchor_offset} "
+              f"(phrase_margin {downbeats['phrase_margin']:.2f})")
+
     # ── Phrases ──
     print(f"  [9/10] Phrase structure...", end=" ", flush=True)
     t0 = time.time()
-    phrases = detect_phrases(beat_times, beat_features)
+    phrases = detect_phrases(beat_times, beat_features, anchor_offset=anchor_offset)
     counts = {k: len(v) for k, v in phrases.items()}
     print(f"{counts} ({time.time() - t0:.1f}s)")
 
@@ -761,7 +883,15 @@ def analyze_deep(audio_path, tracklist_path=None):
     print(f"{len(key_timeline)} windows ({time.time() - t0:.1f}s)")
 
     # ── Beat-grid stability checks ──
+    # Validate the RAW timeline first (observability of librosa's behavior),
+    # then repair octave locks so persisted BPM + confidence are trustworthy.
     beat_quality = validate_beat_grid(beat_times, bpm_timeline, global_bpm)
+    bpm_timeline, octave_corrected = repair_bpm_timeline(bpm_timeline)
+    beat_quality["octave_corrected_windows"] = len(octave_corrected)
+    beat_quality["octave_corrected_times_sec"] = octave_corrected
+    if octave_corrected:
+        print(f"    repaired {len(octave_corrected)} octave-locked BPM windows "
+              f"(~{len(octave_corrected) * 2}s), confidence penalized ×{OCTAVE_CONFIDENCE_PENALTY}")
 
     # ── Per-track analysis ──
     transitions = []
@@ -815,7 +945,7 @@ def analyze_deep(audio_path, tracklist_path=None):
 
     # ── Assemble ──
     result = {
-        "schema_version": "2.1.0",
+        "schema_version": "2.2.0",
         "analyzer": "dj-set-analyzer-deep",
         "file": {
             "path": str(audio_path.resolve()),
@@ -840,6 +970,15 @@ def analyze_deep(audio_path, tracklist_path=None):
             # beats.features per-beat array dropped (Phase 4): consumed only by
             # analyze_tracks_deep as transient input, aggregated into per-track
             # stats and never read again.
+            # 2.2.0: heuristic downbeat estimate (observability/audit only —
+            # see estimate_downbeats; phrase anchoring is opt-in).
+            "downbeats_sec": downbeats["downbeats_sec"],
+            "downbeat_estimator": downbeats["estimator"],
+            "downbeat_bar_offset": downbeats["bar_offset"],
+            "downbeat_bar_margin": downbeats["bar_margin"],
+            "phrase_anchor_offset": anchor_offset,
+            "phrase_anchor_candidate_16": downbeats["phrase_offset_16"],
+            "phrase_anchor_margin": downbeats["phrase_margin"],
         },
         "bpm_timeline": bpm_timeline,
         "multiband_energy": persisted_multiband,
@@ -872,9 +1011,13 @@ def main():
     parser.add_argument("input", help="Path to audio file")
     parser.add_argument("--tracklist", "-t", help="Path to tracklist timestamps file")
     parser.add_argument("-o", "--output", help="Output JSON path")
+    parser.add_argument("--anchor-phrases", action="store_true",
+                        help="Anchor the phrase grid at the estimated downbeat "
+                             "(heuristic — validate by ear before trusting)")
 
     args = parser.parse_args()
-    result = analyze_deep(args.input, tracklist_path=args.tracklist)
+    result = analyze_deep(args.input, tracklist_path=args.tracklist,
+                          anchor_phrases=args.anchor_phrases)
 
     output_path = args.output or str(Path(args.input).with_suffix('.deep-analysis.json'))
     with open(output_path, 'w') as f:

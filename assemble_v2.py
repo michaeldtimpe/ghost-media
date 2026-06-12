@@ -470,6 +470,124 @@ class PhraseFeatures:
     clip_text_embedding: np.ndarray = None  # CLIP text encoding of lyrics
 
 
+def _schema_tuple(data):
+    """Parse schema_version into a comparable (major, minor) tuple."""
+    try:
+        parts = str(data.get("schema_version", "0.0.0")).split(".")
+        return int(parts[0]), int(parts[1])
+    except (ValueError, IndexError):
+        return (0, 0)
+
+
+# Padding around word spans when judging whether a cut bisects a word: a cut
+# this close to a word edge is perceptually on the boundary, not mid-word.
+VOCAL_WORD_PAD_SEC = 0.15
+# How far a phrase boundary may move to clear a word, in beats either side.
+VOCAL_SHIFT_MAX_BEATS = 2
+# When vocals are continuous across every candidate beat (no word-clear cut
+# possible), merge the boundary away instead — don't cut mid-line — unless the
+# combined hold would exceed this. 0 disables merging (boundary stays on beat).
+VOCAL_MERGE_MAX_SEC = 20.0
+
+
+def _merge_phrase_pair(a, b):
+    """Duration-weighted merge of two adjacent PhraseFeatures."""
+    dur = a.duration_sec + b.duration_sec
+    wa, wb = a.duration_sec / dur, b.duration_sec / dur
+    return PhraseFeatures(
+        start_sec=a.start_sec, end_sec=b.end_sec, duration_sec=dur,
+        energy=a.energy * wa + b.energy * wb,
+        energy_peak=max(a.energy_peak, b.energy_peak),
+        energy_shape="sustain",
+        bass_ratio=a.bass_ratio * wa + b.bass_ratio * wb,
+        brightness_audio=a.brightness_audio * wa + b.brightness_audio * wb,
+        percussive_ratio=a.percussive_ratio * wa + b.percussive_ratio * wb,
+        bpm=a.bpm * wa + b.bpm * wb,
+        track_title=a.track_title,
+        onset_density_rank=a.onset_density_rank * wa + b.onset_density_rank * wb,
+        bpm_confidence=min(a.bpm_confidence, b.bpm_confidence),
+    )
+
+
+def adjust_cuts_for_vocals(phrase_features, lyric_segments, beat_times):
+    """Keep phrase boundaries off sung words.
+
+    For each interior boundary that falls inside a word span (±VOCAL_WORD_PAD_SEC):
+    1. Try beats within ±VOCAL_SHIFT_MAX_BEATS, nearest first, taking the first
+       one clear of all words. Clearance relaxes progressively (comfortable pad
+       → tight pad → strict inter-word gap): a cut squeezed between two words
+       still beats one that bisects a word.
+    2. If every candidate is mid-word (continuous vocals), don't cut mid-line:
+       merge the two phrases into one hold, unless the combined duration would
+       exceed VOCAL_MERGE_MAX_SEC — then the boundary stays put (an on-beat
+       mid-phrase cut is acceptable; an off-beat one is not).
+
+    Boundaries move in matched end/start pairs so the frame-exact planner
+    downstream needs no changes. Returns (new_phrase_list, moved, merged).
+    """
+    if not lyric_segments or len(beat_times) < 2 or len(phrase_features) < 2:
+        return phrase_features, 0, 0
+    word_spans = []
+    for seg in lyric_segments:
+        for w in seg.get("words", []):
+            if w.get("end", 0) > w.get("start", 0):
+                word_spans.append((w["start"], w["end"]))
+    if not word_spans:
+        return phrase_features, 0, 0
+    word_spans.sort()
+    starts = np.array([s for s, _ in word_spans])
+    ends = np.array([e for _, e in word_spans])
+    bt = np.asarray(beat_times, dtype=np.float64)
+
+    def in_word(t, pad):
+        # Spans overlap at most locally; check the few whose start precedes t.
+        idx = np.searchsorted(starts, t + pad, side="right")
+        lo = max(0, idx - 12)  # spans are ≤ ~1.5s; 12 covers the densest vocals
+        return bool(np.any((starts[lo:idx] - pad < t) & (t < ends[lo:idx] + pad)))
+
+    out = [phrase_features[0]]
+    moved = merged = 0
+    for nxt in phrase_features[1:]:
+        cur = out[-1]
+        boundary = cur.end_sec
+        if not in_word(boundary, VOCAL_WORD_PAD_SEC):
+            out.append(nxt)
+            continue
+
+        idx = int(np.searchsorted(bt, boundary))
+        candidates = [float(bt[j])
+                      for j in range(idx - VOCAL_SHIFT_MAX_BEATS,
+                                     idx + VOCAL_SHIFT_MAX_BEATS + 1)
+                      if 0 <= j < len(bt)]
+        candidates.sort(key=lambda t: abs(t - boundary))
+
+        def usable(t, pad):
+            # Keep both phrases non-degenerate after the shift.
+            return (t > cur.start_sec + 1.0 and t < nxt.end_sec - 1.0
+                    and abs(t - boundary) > 1e-4 and not in_word(t, pad))
+
+        new_t = None
+        for pad in (VOCAL_WORD_PAD_SEC, VOCAL_WORD_PAD_SEC / 3, 0.0):
+            new_t = next((t for t in candidates if usable(t, pad)), None)
+            if new_t is not None:
+                break
+
+        if new_t is not None:
+            cur.end_sec = new_t
+            cur.duration_sec = new_t - cur.start_sec
+            nxt.start_sec = new_t
+            nxt.duration_sec = nxt.end_sec - new_t
+            out.append(nxt)
+            moved += 1
+        elif (VOCAL_MERGE_MAX_SEC > 0
+                and cur.duration_sec + nxt.duration_sec <= VOCAL_MERGE_MAX_SEC):
+            out[-1] = _merge_phrase_pair(cur, nxt)
+            merged += 1
+        else:
+            out.append(nxt)
+    return out, moved, merged
+
+
 def extract_phrase_features(data, phrases):
     """Extract audio features per phrase.
 
@@ -487,6 +605,10 @@ def extract_phrase_features(data, phrases):
     # missing so old JSONs still score.
     onset_times = np.array(data.get("onsets", {}).get("times_sec", []), dtype=np.float64)
     global_bpm = float(data.get("global", {}).get("bpm", 128.0))
+    # Pre-2.2.0: detect_phrases set end_sec to the last beat's timestamp,
+    # undershooting the true phrase span by ~1 beat; extend when reading old
+    # JSONs. 2.2.0+ end_sec is the next phrase's start — no correction.
+    end_undershoots = _schema_tuple(data) < (2, 2)
     # Per-set 95th-pct of bpm confidence: divisor that normalizes typical
     # strong-tempo material to ~1.0. Falls back to 8.0 (close to Phase 0
     # observation of 8.28 on the smoke set) when the timeline lacks it.
@@ -509,9 +631,7 @@ def extract_phrase_features(data, phrases):
         if not mb:
             continue
 
-        # Extend phrase window by one beat: detect_phrases sets end_sec to the
-        # last beat's *timestamp*, undershooting actual phrase span by ~1 beat.
-        phrase_end_effective = end + 60.0 / global_bpm
+        phrase_end_effective = end + 60.0 / global_bpm if end_undershoots else end
         n_onsets = (np.searchsorted(onset_times, phrase_end_effective)
                     - np.searchsorted(onset_times, start)) if len(onset_times) else 0
         phrase_dur = max(phrase_end_effective - start, 1e-6)
@@ -932,10 +1052,24 @@ def merge_phrases_adaptive(phrase_features):
     return merged
 
 
-def select_clips(scenes, phrase_features, style_hints=None):
+def _snap_to_beat(t, beat_grid):
+    """Nearest beat to t, or t itself if no grid is available."""
+    if beat_grid is None or not len(beat_grid):
+        return t
+    idx = np.searchsorted(beat_grid, t)
+    best = t, np.inf
+    for j in (idx - 1, idx):
+        if 0 <= j < len(beat_grid) and abs(beat_grid[j] - t) < best[1]:
+            best = float(beat_grid[j]), abs(beat_grid[j] - t)
+    return best[0]
+
+
+def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
     """Select clips with hard variety enforcement and adaptive diversity."""
     if style_hints is None:
         style_hints = {}
+    beat_grid = (np.asarray(beat_times, dtype=np.float64)
+                 if beat_times is not None and len(beat_times) else None)
 
     selections = []
     selected_clips = []      # SceneClip objects in selection order (for MMR)
@@ -1082,7 +1216,10 @@ def select_clips(scenes, phrase_features, style_hints=None):
         # The clip must end at the frame nearest the phrase's end on the
         # audio timeline. v2.0 truncated clips to scene length (most scenes
         # are shorter than their phrase), which desynced every later cut.
-        end_frame = int(round((phrase.end_sec - timeline_start) * FPS))
+        # Snap the planned end to the beat grid first: a near-no-op for
+        # unmerged 2.2.0 phrases (already beat times), but protects merged
+        # boundaries and pre-2.2.0 JSONs from landing between beats.
+        end_frame = int(round((_snap_to_beat(phrase.end_sec, beat_grid) - timeline_start) * FPS))
         n_frames = max(end_frame - frames_emitted, FPS)  # never under 1s
         target_dur = n_frames / FPS
         frames_emitted += n_frames
@@ -1502,9 +1639,19 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
         print(f"    Merged {pre_merge - post_merge} low-energy phrases into longer holds")
 
     # ── 3b. Load lyrics if available ──
+    beat_times = data.get("beats", {}).get("times_sec", [])
     lyrics_path = BASE_DIR / "sets" / f"{set_name}.lyrics.json"
     if lyrics_path.exists():
         lyrics_data = json.loads(lyrics_path.read_text())
+
+        # Move phrase boundaries off sung words onto word-clear beats before
+        # any phrase-keyed lookups happen (word timings from Whisper).
+        phrase_features, n_moved, n_vmerged = adjust_cuts_for_vocals(
+            phrase_features, lyrics_data.get("segments", []), beat_times)
+        if n_moved or n_vmerged:
+            print(f"    Vocal-aware cuts: {n_moved} boundaries moved off sung words, "
+                  f"{n_vmerged} merged away (continuous vocals)")
+
         phrase_lyrics = lyrics_data.get("phrase_lyrics", {}).get(
             {4: "four_bar", 8: "eight_bar", 16: "sixteen_bar"}[args.phrase_bars], {})
         lyrics_applied = 0
@@ -1568,7 +1715,7 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
     else:
         print(f"\n  [4/5] Matching scenes to phrases...", end=" ", flush=True)
     t0 = time.time()
-    selections = select_clips(scenes, phrase_features, style_hints)
+    selections = select_clips(scenes, phrase_features, style_hints, beat_times=beat_times)
     print(f"done ({time.time()-t0:.1f}s)")
 
     # Quality of the selection — observability for tuning QUALITY_PENALTY_WEIGHT.
@@ -1763,6 +1910,8 @@ def main():
         if ok and out_path.exists():
             size = fmt_size(out_path.stat().st_size)
             print(f"  {icon} {name:<32} {size:>8}  → {out_name}")
+        elif ok:
+            print(f"  {icon} {name:<32} rendered (custom --output path)")
         else:
             print(f"  {icon} {name:<32} {'FAILED':>8}")
     print(f"\n  Output directory: {BASE_DIR / 'sets'}/")

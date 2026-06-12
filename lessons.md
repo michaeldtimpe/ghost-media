@@ -483,6 +483,35 @@ they don't enforce continuity across windows. In long DJ-set audio with
 multiple tempo regimes, expect this to surface at every transition. Detect
 it post-hoc, don't trust raw `bpm_timeline` inside the runs.
 
+*Update (2.2.0):* option (a)+(b) landed as `repair_bpm_timeline` — folded
+windows are corrected against a 31-entry rolling median and keep
+`confidence × 0.25`, so the assembler's existing dur-match weighting
+distrusts them with no assembler change. Validation still runs on the raw
+timeline first so `octave_doubling_pct` keeps measuring librosa's behavior.
+
+## Downbeat estimation from energy heuristics doesn't converge on this corpus
+
+The cut-timing uplift wanted phrase grids anchored at musical downbeats
+(today's grid starts wherever librosa's first beat fell — an arbitrary 0–15
+beat offset from the real phrase structure). Three candidate signals were
+prototyped against all 5 sets at 16-beat phase granularity: |ΔRMS| arrival,
+bass arrival (positive sub_bass+bass delta), and brilliance arrival. They
+disagree with each other on most sets (e.g. boxing-day: best phase 14 vs 5
+vs 9) and margins over the median phase are thin (0.04–0.33). Four-on-the-
+floor material puts kick energy on *every* beat, starving simple per-beat
+energy features of bar-phase information. Tracklist timestamps can't
+arbitrate either — 1-second resolution vs a ~0.47s beat period.
+
+So 2.2.0 persists `beats.downbeats_sec` + margins for observability, but
+phrase anchoring is opt-in (`--anchor-phrases`) until a listen test
+validates an anchor. A wrong anchor is worse than none: it shifts *every*
+cut to a consistently wrong beat, which is exactly the artifact the uplift
+was meant to remove.
+
+**Lesson:** when a heuristic decides something global (one offset applied to
+~550 cuts), require corroboration between independent signals before wiring
+it in. Persist the estimate; gate the behavior.
+
 ## `metronomic_deviation_max_sec` is NOT "tracker drift"
 
 The third beat-quality check measures the maximum absolute deviation between
