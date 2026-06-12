@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "label": "post_cut_timing_2026-06",
-  "assembler_commit": "8bd1e78",
+  "label": "post_salvage_2026-06",
+  "assembler_commit": "2de30ef",
   "phrase_bars": 4,
   "seed": 42,
   "sets": {
@@ -9,60 +9,60 @@
       "n_selections": 534,
       "n_excluded": 0,
       "n_consec_pairs": 533,
-      "consec_mean": 0.6936226318857683,
-      "consec_median": 0.6979572176933289,
-      "consec_p90": 0.8141707658767701,
-      "consec_p95": 0.840109670162201,
+      "consec_mean": 0.6940551963241641,
+      "consec_median": 0.6952838897705078,
+      "consec_p90": 0.8065374255180359,
+      "consec_p95": 0.8317233681678772,
       "close_pairs_w5": {
         "0.85": 51,
-        "0.8": 298,
-        "0.75": 746
+        "0.8": 316,
+        "0.75": 751
       },
       "close_pairs_w30": {
-        "0.9": 36,
-        "0.85": 334
+        "0.9": 33,
+        "0.85": 335
       },
-      "distinct_sources_used": 38,
+      "distinct_sources_used": 41,
       "max_single_source_count": 21
     },
     "cheerleader-exodus-2025": {
       "n_selections": 699,
       "n_excluded": 0,
       "n_consec_pairs": 698,
-      "consec_mean": 0.6915928711180701,
-      "consec_median": 0.6944901049137115,
-      "consec_p90": 0.8042787790298462,
-      "consec_p95": 0.8275471597909927,
+      "consec_mean": 0.6907493618549112,
+      "consec_median": 0.693628579378128,
+      "consec_p90": 0.8066593885421753,
+      "consec_p95": 0.8272330820560455,
       "close_pairs_w5": {
-        "0.85": 67,
-        "0.8": 386,
-        "0.75": 959
+        "0.85": 56,
+        "0.8": 410,
+        "0.75": 953
       },
       "close_pairs_w30": {
-        "0.9": 41,
-        "0.85": 468
+        "0.9": 39,
+        "0.85": 436
       },
-      "distinct_sources_used": 38,
-      "max_single_source_count": 30
+      "distinct_sources_used": 41,
+      "max_single_source_count": 29
     },
     "boxing-day-2025": {
       "n_selections": 572,
       "n_excluded": 0,
       "n_consec_pairs": 571,
-      "consec_mean": 0.691611850063354,
-      "consec_median": 0.6959876418113708,
-      "consec_p90": 0.8070535063743591,
-      "consec_p95": 0.8273585140705109,
+      "consec_mean": 0.6926771286490084,
+      "consec_median": 0.6903913617134094,
+      "consec_p90": 0.8043948411941528,
+      "consec_p95": 0.8269523680210114,
       "close_pairs_w5": {
-        "0.85": 48,
-        "0.8": 327,
-        "0.75": 803
+        "0.85": 51,
+        "0.8": 303,
+        "0.75": 752
       },
       "close_pairs_w30": {
-        "0.9": 33,
-        "0.85": 376
+        "0.9": 29,
+        "0.85": 351
       },
-      "distinct_sources_used": 38,
+      "distinct_sources_used": 41,
       "max_single_source_count": 23
     }
   }
