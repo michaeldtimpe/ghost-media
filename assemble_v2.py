@@ -278,9 +278,12 @@ def load_text_flags():
             if info.get("has_english_text"):
                 flagged.add(int(sec_str))
         if flagged:
-            # Store under both the source stem and the text_flag stem for matching
-            text_seconds[source_stem] = flagged
-            text_seconds[tf_stem] = flagged
+            # Store under both the source stem and the text_flag stem for
+            # matching. UNION across files: a source can have several flag
+            # files (main scan, *.runtime_bans, *.render_check) — assignment
+            # here would silently drop all but the last-globbed one.
+            text_seconds.setdefault(source_stem, set()).update(flagged)
+            text_seconds.setdefault(tf_stem, set()).update(flagged)
 
     return text_seconds
 
@@ -1805,6 +1808,16 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
 
         set_elapsed = time.time() - set_start
 
+        # ── Optional post-render text check ──
+        if getattr(args, "verify_text", False):
+            print(f"\n  [6/5] Post-render text check...")
+            rc = subprocess.run(
+                [sys.executable, str(BASE_DIR / "scripts" / "check_render_text.py"),
+                 str(output_path), "--plan", str(plan_path)]).returncode
+            if rc != 0:
+                print(f"  ⚠ English text found in render — see report above "
+                      f"(re-run checker with --update-flags to exclude the sources)")
+
         print(f"\n  ╔═══════════════════════════════════════════════════════════════════╗")
         print(f"  ║  DONE: {set_name:<58}║")
         print(f"  ║  Duration: {dur:<8}  Size: {fmt_size(size):<10}  Render: {fmt_time(set_elapsed):<14}║")
@@ -1828,6 +1841,9 @@ def main():
     parser.add_argument("-o", "--output", type=str, default=None,
                         help="Output video path (auto-named if omitted)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--verify-text", action="store_true",
+                        help="After rendering, re-check the output for lingering "
+                             "English text (scripts/check_render_text.py)")
 
     args = parser.parse_args()
 
