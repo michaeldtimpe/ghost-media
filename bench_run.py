@@ -60,6 +60,14 @@ def main():
         return
 
     if args.cmd == "plan":
+        if not args.videos:
+            # Same failure class as the --max-states cap (lessons.md): a bench
+            # default silently scoping a production run. The 2026-06 import
+            # built plans for 6 pilots instead of 99 new videos because of this.
+            print("\n  ⚠ no --videos given: planning the PILOT set only "
+                  f"({len(config.PILOT_VIDEOS)} videos).")
+            print("    For the full corpus pass `--videos .` "
+                  "(substring-matches every analysis file).\n")
         reg = config.pilot_registry(args.videos)
         stats = sampler.build_plans(reg, max_states=args.max_states, force=args.force)
         sampler.print_histogram(stats)
