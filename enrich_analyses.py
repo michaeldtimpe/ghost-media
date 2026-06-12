@@ -666,7 +666,7 @@ def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
 
 # ─── Sampling-plan mode (pilot rescan) ──────────────────────────────────────
 
-def run_sampling_plan(source_dir, video_filter=None, dry_run=False):
+def run_sampling_plan(source_dir, video_filter=None, dry_run=False, only_new=False):
     """Re-enrich from bench sampling plans: one vision call per DISTINCT VISUAL
     STATE, with a `semantic` attached to EVERY represented scene (no inheritance),
     plus folded-in text detection. Writes a fresh .enriched.json and a derived
@@ -680,6 +680,23 @@ def run_sampling_plan(source_dir, video_filter=None, dry_run=False):
     plans = sorted(ENRICHMENT_DIR.glob("*.sampling_plan.json"))
     if video_filter:
         plans = [p for p in plans if video_filter.lower() in p.name.lower()]
+    if only_new:
+        # Skip videos already enriched via a sampling plan — protects an
+        # import batch from silently re-running days of VLM over the
+        # existing corpus (run_sampling_plan has no other resume logic).
+        def _done(plan_path):
+            stem = plan_path.name.replace(".sampling_plan.json", "")
+            ef = ENRICHMENT_DIR / f"{stem}.enriched.json"
+            if not ef.exists():
+                return False
+            try:
+                mode = json.loads(ef.read_text()).get("enrichment", {}).get("mode")
+            except (json.JSONDecodeError, OSError):
+                return False
+            return mode == "sampling_plan"
+        skipped = [p for p in plans if _done(p)]
+        plans = [p for p in plans if p not in set(skipped)]
+        print(f"\n  --only-new: skipping {len(skipped)} already-enriched plan(s)")
     if not plans:
         print("\n  No sampling plans found (run `bench_run.py plan` first).")
         return
@@ -852,6 +869,9 @@ def main():
                         help="Process at most N videos (handy for testing)")
     parser.add_argument("--reenrich-flagged", action="store_true",
                         help="Re-run only flagged scenes (failed validation/parse or low quality)")
+    parser.add_argument("--only-new", action="store_true",
+                        help="With --sampling-plan: skip videos whose enriched "
+                             "file was already produced from a sampling plan")
     parser.add_argument("--sampling-plan", action="store_true",
                         help="Rescan from bench sampling plans (one call per distinct visual "
                              "state; attaches semantics to every represented scene + folds in "
@@ -882,7 +902,7 @@ def main():
     BACKEND = get_backend(args.backend, args.model)
 
     if args.sampling_plan:
-        run_sampling_plan(args.source, args.video, args.dry_run)
+        run_sampling_plan(args.source, args.video, args.dry_run, args.only_new)
         return
 
     if args.reenrich_flagged:
