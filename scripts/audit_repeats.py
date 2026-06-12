@@ -60,7 +60,9 @@ def run_selection_only(set_name: str, args_namespace) -> tuple[list, dict]:
     text_seconds = av.load_text_flags()
     scenes = av.build_scene_database(text_seconds)
 
-    scene_lookup = {(s.source_name, round(s.start_sec, 4)): s for s in scenes}
+    # Keyed by (source_name, scene_index): clip_start no longer identifies a
+    # scene — the assembler's window mode varies the start offset per reuse.
+    scene_lookup = {(s.source_name, s.scene_index): s for s in scenes}
 
     print(f"  loading audio analysis...", flush=True)
     data = json.loads(analysis_path.read_text())
@@ -94,7 +96,7 @@ def audit(selections: list, scene_lookup: dict) -> dict:
     # Build an enriched chronological list: (phrase_idx, source, start_sec, embedding)
     chrono = []
     for i, sel in enumerate(selections):
-        key = (sel["clip_source_name"], round(sel["clip_start"], 4))
+        key = (sel["clip_source_name"], sel.get("scene_index"))
         scene = scene_lookup.get(key)
         emb = scene.clip_embedding if scene is not None else None
         scene_index = scene.scene_index if scene is not None else None

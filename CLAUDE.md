@@ -16,6 +16,7 @@ Guidance for Claude Code (and other agents) working in this repo.
 5. **[bench/TESTPLAN.md](bench/TESTPLAN.md)** — vision-engine bake-off plan + status; bake-off + corpus rescan + perceptual-diversity uplift all **complete**.
 6. **[audio_field_audit.md](audio_field_audit.md)** — per-field contract for `.deep-analysis.json` (schema 2.1.0): role, cost, recommendation per field. Reference when modifying audio output.
 7. **[scripts/](scripts/)** — `audit_repeats.py` for diagnosing visible-repeat complaints; `capture_perceptual_baseline.py` for tuning selection constants without paying for full renders.
+8. **[MIGRATION.md](MIGRATION.md)** — moving the working setup (repo + gitignored data + archive media) to a new host: copy lists, hardcoded paths, post-move verification.
 
 ## Working conventions
 - **Generated data is gitignored** (`*.analysis.json`, `enriched/`, `text_flags/`, `sets/`, `demucs_output/`, `bench/results/`, `raw_footage/`, media). Never commit it. Code, docs, and `examples/` only.
