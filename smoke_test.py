@@ -93,6 +93,7 @@ def main():
     check("corrections recorded in _validation", "_validation" in clean_an and bool(notes))
 
     cut_timing_checks()
+    salvage_checks()
     bench_checks(rng)
 
     print("  " + "─" * 60)
@@ -162,6 +163,38 @@ def cut_timing_checks():
     pfs, moved, merged = a.adjust_cuts_for_vocals([p1, p2], segs, beats)
     check("word-clear boundary untouched",
           moved == 0 and merged == 0 and pfs[0].end_sec == 4.0)
+
+
+def salvage_checks():
+    """Sub-scene salvage interval math (text-flag subtraction)."""
+    print("\n  SUB-SCENE SALVAGE")
+    print("  " + "─" * 60)
+
+    flags = {"src video": {30, 31, 32, 90}}
+
+    # Span building: contiguous seconds merge; each second covers [s, s+1).
+    spans = a.scene_text_spans("src video.mp4", 0, 120, flags)
+    check("contiguous flags merge into spans", spans == [(30.0, 33.0), (90.0, 91.0)])
+    check("clean scene → no spans", a.scene_text_spans("src video.mp4", 0, 25, flags) == [])
+    check("unrelated source → no spans", a.scene_text_spans("other.mp4", 0, 120, flags) == [])
+
+    # Subtraction: a 0–60s scene with text at 30–33s → two clean ranges,
+    # padded by TEXT_MARGIN_SEC on each side of the flagged span.
+    subs = a.salvage_subscenes(0.0, 60.0, [(30.0, 33.0)])
+    check("split around flagged span",
+          subs == [(0.0, 30.0 - a.TEXT_MARGIN_SEC), (33.0 + a.TEXT_MARGIN_SEC, 60.0)])
+
+    # Fragment below SALVAGE_MIN_DURATION is dropped.
+    subs = a.salvage_subscenes(29.0, 60.0, [(30.0, 33.0)])
+    check("short leading fragment dropped",
+          subs == [(33.0 + a.TEXT_MARGIN_SEC, 60.0)])
+
+    # Fully contaminated scene → nothing salvageable.
+    check("fully flagged → nothing", a.salvage_subscenes(30.0, 33.5, [(29.0, 34.0)]) == [])
+
+    # Text at the very edge trims rather than splits.
+    subs = a.salvage_subscenes(0.0, 60.0, [(0.0, 5.0)])
+    check("edge span trims start", subs == [(5.0 + a.TEXT_MARGIN_SEC, 60.0)])
 
 
 def bench_checks(rng):

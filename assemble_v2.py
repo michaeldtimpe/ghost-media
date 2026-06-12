@@ -197,6 +197,10 @@ class SceneClip:
     # Enriched-file stem (sanitized) — the reliable key for CLIP/quality sidecars,
     # since source_name keeps the original (unsanitized) filename.
     enriched_stem: str = ""
+    # Salvaged sub-range ordinal within the parent scene (0 = whole scene).
+    # All sub-ranges share the parent's scene_index, so variety windows,
+    # reuse penalties, and near-dup treat them as one scene.
+    sub_index: int = 0
     # Percentile rank of motion_std across the full scene database (0-1).
     # Populated post-build by _assign_motion_std_ranks; used by onset_match.
     motion_std_rank: float = 0.5
@@ -288,23 +292,72 @@ def load_text_flags():
     return text_seconds
 
 
-def scene_has_text(clip_source_name, start_sec, end_sec, text_seconds):
-    """Check if a scene overlaps with any English text seconds."""
+# Sub-scene salvage: instead of discarding a whole scene because one stretch
+# has text, subtract the flagged seconds (padded by the flag resolution) and
+# keep the clean sub-ranges. Flags are per-second, so the data already exists.
+TEXT_MARGIN_SEC = 1.0        # padding around flagged seconds (flag resolution)
+SALVAGE_MIN_DURATION = 1.5   # keep clean sub-ranges at least this long
+
+
+def scene_text_spans(clip_source_name, start_sec, end_sec, text_seconds):
+    """Flagged-second intervals overlapping [start_sec, end_sec), merged.
+
+    Each flagged second s covers [s, s+1). Returns a sorted list of
+    (lo, hi) spans; empty list = scene is clean.
+    """
     if not text_seconds:
-        return False
-    # Try to match source name against text flag keys
+        return []
+    flagged = set()
     for key, flagged_secs in text_seconds.items():
         if key in clip_source_name or clip_source_name in key:
-            # Check if any second in the scene range is flagged
             for sec in range(int(start_sec), int(end_sec) + 1):
                 if sec in flagged_secs:
-                    return True
-    return False
+                    flagged.add(sec)
+    if not flagged:
+        return []
+    spans = []
+    for sec in sorted(flagged):
+        if spans and sec <= spans[-1][1]:
+            spans[-1][1] = sec + 1
+        else:
+            spans.append([float(sec), float(sec + 1)])
+    return [(lo, hi) for lo, hi in spans]
 
 
-def build_scene_database(text_seconds=None):
-    """Build scene database from all enriched files, merging all data sources."""
+def scene_has_text(clip_source_name, start_sec, end_sec, text_seconds):
+    """Check if a scene overlaps with any English text seconds."""
+    return bool(scene_text_spans(clip_source_name, start_sec, end_sec, text_seconds))
+
+
+def salvage_subscenes(start_sec, end_sec, flagged_spans):
+    """Subtract padded flagged spans from a scene; return clean sub-ranges.
+
+    Each returned (lo, hi) is at least SALVAGE_MIN_DURATION long and at
+    least TEXT_MARGIN_SEC away from any flagged second.
+    """
+    clean = []
+    cursor = start_sec
+    for lo, hi in flagged_spans:
+        lo -= TEXT_MARGIN_SEC
+        hi += TEXT_MARGIN_SEC
+        if lo > cursor:
+            clean.append((cursor, min(lo, end_sec)))
+        cursor = max(cursor, hi)
+    if cursor < end_sec:
+        clean.append((cursor, end_sec))
+    return [(lo, hi) for lo, hi in clean if hi - lo >= SALVAGE_MIN_DURATION]
+
+
+def build_scene_database(text_seconds=None, salvage=True):
+    """Build scene database from all enriched files, merging all data sources.
+
+    salvage=True splits partially text-flagged scenes into clean sub-ranges
+    (see salvage_subscenes) instead of discarding them whole. --no-salvage
+    restores the old discard behavior for A/B comparison.
+    """
     scenes = []
+    n_excluded = n_salvaged_scenes = n_subclips = 0
+    recovered_sec = 0.0
     files = sorted(ENRICHED_DIR.iterdir())
     files = [f for f in files if f.name.endswith('.enriched.json')]
 
@@ -353,17 +406,6 @@ def build_scene_database(text_seconds=None):
             end = s.get("end_sec", start)
             si = s.get("scene_index", 0)
 
-            # Motion from optical flow
-            motion_vals = get_range(motion_tl, start, end, "mean_motion")
-            motion_peaks = get_range(motion_tl, start, end, "max_motion")
-
-            # Brightness
-            bright_vals = get_range(brightness_tl, start, end, "brightness")
-            contrast_vals = get_range(brightness_tl, start, end, "contrast")
-
-            # Colors
-            colors = get_colors_at(color_tl, start, end)
-
             # Semantic (from enrichment or scene-level)
             semantic = s.get("semantic", {}) or fa_by_scene.get(si, {})
             has_semantic = bool(semantic)
@@ -371,34 +413,61 @@ def build_scene_database(text_seconds=None):
             style = semantic.get("visual_style", "") if semantic else ""
             tags = semantic.get("content_tags", []) if semantic else []
 
-            # Skip scenes with English text
-            if text_seconds and scene_has_text(source_name, start, end, text_seconds):
-                continue
+            # Text handling: salvage clean sub-ranges of partially flagged
+            # scenes; discard only what's actually contaminated.
+            sub_ranges = [(start, end)]
+            trimmed = False
+            spans = scene_text_spans(source_name, start, end, text_seconds) \
+                if text_seconds else []
+            if spans:
+                if not salvage:
+                    n_excluded += 1
+                    continue
+                sub_ranges = salvage_subscenes(start, end, spans)
+                if not sub_ranges:
+                    n_excluded += 1
+                    continue
+                trimmed = True
+                n_salvaged_scenes += 1
+                n_subclips += len(sub_ranges)
+                recovered_sec += sum(hi - lo for lo, hi in sub_ranges)
 
-            clip = SceneClip(
-                source_name=source_name,
-                source_path=source_path,
-                scene_index=si,
-                start_sec=start,
-                end_sec=end,
-                duration_sec=dur,
-                motion_mean=float(np.mean(motion_vals)) if motion_vals else 0,
-                motion_peak=float(np.max(motion_peaks)) if motion_peaks else 0,
-                motion_std=float(np.std(motion_vals)) if motion_vals else 0,
-                brightness_mean=float(np.mean(bright_vals)) if bright_vals else 0.3,
-                contrast_mean=float(np.mean(contrast_vals)) if contrast_vals else 0.3,
-                dominant_colors=colors,
-                color_temperature=compute_color_temperature(colors),
-                color_saturation=compute_color_saturation(colors),
-                visual_style=style,
-                mood_energy=mood.get("energy", ""),
-                content_tags=tags,
-                has_semantic=has_semantic,
-                loopable=s.get("loopable", False),
-                loop_similarity=s.get("loop_similarity", 0.0),
-                enriched_stem=src_stem,
-            )
-            scenes.append(clip)
+            for sub_idx, (sub_start, sub_end) in enumerate(sub_ranges):
+                # Measured features recomputed per sub-range — accurate for
+                # the footage actually used, not the parent average.
+                motion_vals = get_range(motion_tl, sub_start, sub_end, "mean_motion")
+                motion_peaks = get_range(motion_tl, sub_start, sub_end, "max_motion")
+                bright_vals = get_range(brightness_tl, sub_start, sub_end, "brightness")
+                contrast_vals = get_range(brightness_tl, sub_start, sub_end, "contrast")
+                colors = get_colors_at(color_tl, sub_start, sub_end)
+
+                clip = SceneClip(
+                    source_name=source_name,
+                    source_path=source_path,
+                    scene_index=si,
+                    start_sec=sub_start,
+                    end_sec=sub_end,
+                    duration_sec=sub_end - sub_start,
+                    motion_mean=float(np.mean(motion_vals)) if motion_vals else 0,
+                    motion_peak=float(np.max(motion_peaks)) if motion_peaks else 0,
+                    motion_std=float(np.std(motion_vals)) if motion_vals else 0,
+                    brightness_mean=float(np.mean(bright_vals)) if bright_vals else 0.3,
+                    contrast_mean=float(np.mean(contrast_vals)) if contrast_vals else 0.3,
+                    dominant_colors=colors,
+                    color_temperature=compute_color_temperature(colors),
+                    color_saturation=compute_color_saturation(colors),
+                    visual_style=style,
+                    mood_energy=mood.get("energy", ""),
+                    content_tags=tags,
+                    has_semantic=has_semantic,
+                    # The SSIM loop check validated the PARENT's first/last
+                    # frames; a trimmed sub-range has different endpoints.
+                    loopable=s.get("loopable", False) and not trimmed,
+                    loop_similarity=0.0 if trimmed else s.get("loop_similarity", 0.0),
+                    enriched_stem=src_stem,
+                    sub_index=sub_idx if trimmed else 0,
+                )
+                scenes.append(clip)
 
     # Load CLIP embeddings from sidecar files
     clip_embeddings = {}  # (source_name, scene_index) → np.array
@@ -443,6 +512,14 @@ def build_scene_database(text_seconds=None):
         ranks = stds.argsort().argsort().astype(np.float32) / max(len(stds) - 1, 1)
         for c, r in zip(scenes, ranks):
             c.motion_std_rank = float(r)
+
+    if n_salvaged_scenes:
+        print(f"    Salvage: {n_subclips} sub-scenes from {n_salvaged_scenes} "
+              f"flagged scenes (+{recovered_sec:.0f}s recovered), "
+              f"{n_excluded} fully excluded")
+    elif n_excluded:
+        print(f"    Text filter: {n_excluded} scenes excluded"
+              f"{' (salvage disabled)' if not salvage else ''}")
 
     return scenes
 
@@ -1268,6 +1345,7 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
             "clip_source": best_clip.source_path,
             "clip_source_name": best_clip.source_name,
             "scene_index": best_clip.scene_index,
+            "sub_index": best_clip.sub_index,
             "clip_start": round(clip_start, 3),
             "clip_duration": round(target_dur, 4),
             "n_frames": n_frames,
@@ -1597,7 +1675,8 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
     t0 = time.time()
     text_seconds = load_text_flags()
     text_sources = len(set(k for k in text_seconds))
-    scenes = build_scene_database(text_seconds)
+    scenes = build_scene_database(text_seconds,
+                                  salvage=not getattr(args, "no_salvage", False))
     n_sources = len(set(s.source_name for s in scenes))
     print(f"{len(scenes)} scenes from {n_sources} videos ({time.time()-t0:.1f}s)")
     if text_sources:
@@ -1844,6 +1923,9 @@ def main():
     parser.add_argument("--verify-text", action="store_true",
                         help="After rendering, re-check the output for lingering "
                              "English text (scripts/check_render_text.py)")
+    parser.add_argument("--no-salvage", action="store_true",
+                        help="Discard partially text-flagged scenes whole instead "
+                             "of salvaging clean sub-ranges (pre-salvage behavior)")
 
     args = parser.parse_args()
 

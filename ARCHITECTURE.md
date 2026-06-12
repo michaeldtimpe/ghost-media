@@ -310,9 +310,18 @@ The `phrase_lyrics` index maps phrase indices to keyword lists, consumed directl
    - Dominant colors → computed temperature (warm/cool) and saturation
    - Semantic data from nearest frame analysis (visual style, mood, tags)
 3. Filter out scenes < 1.5s or > 120s
-4. Filter out scenes overlapping with English text flags
-5. Result: ~6,500 candidate scenes with full feature vectors (after duration
-   + text filters, across the 52-source enriched corpus)
+4. **Sub-scene salvage**: scenes overlapping English text flags are split
+   around the flagged seconds (±`TEXT_MARGIN_SEC`=1s padding) and the clean
+   sub-ranges ≥ `SALVAGE_MIN_DURATION`=1.5s are kept (`salvage_subscenes`;
+   `--no-salvage` restores whole-scene discard). Sub-clips share the parent's
+   `scene_index`, so variety windows / reuse penalties / near-dup treat them
+   as one scene; measured features (motion, brightness, colors) are
+   recomputed per sub-range; `loopable` is forced off for trimmed ranges
+   (the SSIM check validated the parent's endpoints). Recovers ~43 min of
+   footage and returns 3 fully-text-excluded sources to rotation on the
+   current corpus. Scenes flagged end-to-end stay excluded.
+5. Result: ~6,400 candidate scenes with full feature vectors (after duration
+   + text filters + salvage, across the 52-source enriched corpus)
 
 ### Phrase Feature Extraction
 
