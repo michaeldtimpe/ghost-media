@@ -271,6 +271,16 @@ loudly* in the wrong context, not silently produce a smaller dataset. The bench
 script could log "WARNING: capping at 300 states — pass `--max-states 0` to
 disable" whenever the cap fires, with the count it would have produced uncapped.
 
+*Recurrence (2026-06, hungry-ghost import):* the same class bit again through a
+different knob — `bench_run.py plan` without `--videos` silently scopes to the
+**6-video PILOT set** (`pilot_registry` falls back to `PILOT_VIDEOS`). The import
+chain "built sampling plans" in 3 seconds, enrichment found nothing new to do, and
+the chain marched on green. Caught because the stage timestamps were implausible,
+not because anything failed. `plan` now prints a loud warning when run without
+`--videos` (pass `--videos .` for the full corpus). Two instances make the
+pattern: audit every bench CLI default before reusing it in a production runbook,
+and treat suspiciously fast stages as failures until proven otherwise.
+
 ## Multi-machine MLX-VLM splits are often net-negative
 
 Tried splitting the production rescan across M5 + M1 + neo. Real-world result was
