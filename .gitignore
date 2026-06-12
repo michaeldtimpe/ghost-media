@@ -69,3 +69,4 @@ analysis_output/
 # ─── Keep small, committed example outputs ────────────────
 !examples/
 !examples/*.json
+audit_semantics_worklist.json

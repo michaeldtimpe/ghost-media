@@ -358,7 +358,7 @@ match terms; the rest are additive bonuses/penalties (see `score_scene` in
 
 | # | Dimension | Weight | Logic |
 |---|-----------|--------|-------|
-| 1 | Motion-energy | 1.0 | Visual motion ↔ audio energy |
+| 1 | Motion-energy | 1.0 | Visual motion ↔ audio energy — 50/50 blend of raw `/15` normalization (absolute) and corpus percentile rank (scale-free: motion magnitude spans ~600× between sources) |
 | 2 | Brightness | 0.8 | Visual brightness ↔ spectral centroid |
 | 3 | Color temperature | 0.7 | Warm colors ↔ bass-heavy audio |
 | 4 | Duration fit | 0.9 × `(0.6 + 0.4 × bpm_confidence)` | Scene length ↔ target (3-15s based on energy), **speed-fit aware**: judged on the closest duration the clip can *present* within the render speed range `[SPEED_FIT_MIN, SPEED_FIT_MAX]` (a 5.6s scene is a perfect 8s phrase at 0.7×). Also **soft-de-emphasized** on low-confidence BPM phrases (breakdowns / intros / transitions); at zero confidence, term retains 60% weight — mild, not "disable". |
@@ -367,7 +367,7 @@ match terms; the rest are additive bonuses/penalties (see `score_scene` in
 | 6b | **Onset-density ↔ motion-jitter** | 0.4 | Per-set percentile-ranked `onsets/sec` per phrase × per-corpus percentile-ranked `motion_std` per clip. Orthogonal to energy: distinguishes lots-of-small-percussion from one-sustained-pad at the same loudness. Both sides percentile-ranked so the match is scale-free (insensitive to BPM regime or motion magnitude). |
 | 7 | Semantic | 0.1-0.4 | Mood energy match (calm↔calm, intense↔intense) |
 | 8 | Style hints | variable | Per-set creative direction bonus/penalty |
-| 9 | Lyrics match | 0.25/match | Lyric keywords matched against clip content_tags (cap 0.8) |
+| 9 | Lyrics match | 0.25/match | Lyric keywords matched against clip content_tags (cap 0.8): exact lexical matches **plus canonical-vocabulary matches** ("ocean" lyric ↔ "sea" tag → both canonical "water"). Canonical side is mapping-only (a lyric word maps only if it ever appeared as a corpus tag — free CLIP-cosine mapping of arbitrary words is junk-prone) and DF-filtered (terms tagging > `CANON_MATCH_MAX_DF`=3% of the corpus carry no signal). See `scripts/canonicalize_tags.py` / `canonical_tags.json`. |
 | 10 | Loopability | +0.15 | Prefer loopable clips for phrases longer than the scene |
 | 11 | CLIP similarity | ×0.6 | Lyric-text embedding ↔ scene visual embedding (cosine) |
 | 12 | Scene quality | ×3.0 | **Non-destructive** soft penalty `-(1-quality_score)*3` — a dead scene (black/blown/frozen) sinks ~3 pts but is never excluded outright |
