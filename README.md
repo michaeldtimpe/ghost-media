@@ -46,8 +46,9 @@ Source footage library                DJ set audio
         └──────────────┬──────────────────────┘
                        ▼
               5. assemble_v2.py
-                 build scene DB (~19k scenes) → extract phrase features →
-                 adaptive phrase merge → score + select clips → ffmpeg render
+                 build scene DB (~6.5k usable scenes) → extract phrase features →
+                 adaptive phrase merge → score + select clips →
+                 frame-exact ffmpeg render (window/speedfit/loop/pingpong)
                        │
                        ▼
                 Music Video (.mp4)

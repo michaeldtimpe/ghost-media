@@ -179,3 +179,4 @@ The assembler (`assemble_v2.py`) only needs numpy and FFmpeg — it reads pre-co
 - Generated music videos are 2-3 GB each.
 - Vision model inference is slow (~45-65 seconds per frame via Ollama; MLX is ~1.9× faster). The fast text scanner mitigates this with adaptive sampling.
 - `sets/` may be a **symlink** into the archive drive on dev machines (`ln -s /Volumes/archive/temp/media-analysis/sets sets`). The assembler resolves `analysis` paths via `BASE_DIR / "sets" / ...`. Untracked, gitignored.
+- Moving to a new machine? **[MIGRATION.md](MIGRATION.md)** has the full copy list (which gitignored data is expensive to regenerate), the hardcoded paths to update (`SOURCE_DIR` / `SETS_DIR` in `assemble_v2.py`), and a post-move verification checklist including the frame-exact render check.
