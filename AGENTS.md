@@ -20,7 +20,7 @@ Generates algorithmic music videos for DJ sets. Source video clips are analyzed 
 
 6. **`bench/` + `bench/TESTPLAN.md`** — the vision-engine bake-off harness (CLI `bench_run.py`). Scores VLMs (Ollama / MLX / Claude) on the footage to pick the production enrichment engine; the winner feeds `enrich_analyses.py --sampling-plan`. Read `bench/TESTPLAN.md` first — it has the lineup, metrics, and a **status/resume** section. Bake-off is **complete**; production = `mlx-qwen7b` + `mlx-internvl` parse-fail fallback (V1 cascade), full corpus rescanned 2026-05-28.
 
-7. **`audio_field_audit.md`** — the per-field contract for `.deep-analysis.json` (schema 2.1.0): who computes each field, who reads it, byte cost, recommendation. Authoritative reference for what stays in the JSON. See also `lessons.md` "# Audio side" for the underlying rationale.
+7. **`audio_field_audit.md`** — the per-field contract for `.deep-analysis.json` (schema 2.2.0): who computes each field, who reads it, byte cost, recommendation. Authoritative reference for what stays in the JSON. See also `lessons.md` "# Audio side" for the underlying rationale.
 
 ## Common Tasks
 
@@ -158,7 +158,7 @@ Each set in `SET_CONFIGS` can have a `style_hints` dict:
 - **Phrase merging happens after feature extraction** — the merge step combines adjacent low-energy phrases into longer clip holds
 - **Lyrics are optional** — if no `.lyrics.json` exists for a set, the assembler skips lyric-visual matching gracefully
 - **Whisper hallucinations** — common on instrumental sections; the extractor filters these (e.g. "thank you for watching", "[music]"). If you see bad lyrics data, check the hallucination patterns in `extract_lyrics.py`
-- **`.deep-analysis.json` schema 2.1.0** carries a non-blocking `beat_quality` block with IOI outliers, octave-doubling rate + max run length, and metronomic deviation. Warnings print on the analyzer console but the file always writes; assembler reads `bpm_timeline.confidence` (with `.get()` fallback for pre-2.1.0 files).
+- **`.deep-analysis.json` schema 2.2.0** carries a non-blocking `beat_quality` block with IOI outliers, octave-doubling rate + max run length, and metronomic deviation. Warnings print on the analyzer console but the file always writes; assembler reads `bpm_timeline.confidence` (with `.get()` fallback for pre-2.1.0 files).
 - **`assemble_v2.py` scoring constants are tuning-sensitive** — the weights in `score_scene` co-evolved with the diversity windows. Land new scoring components at <0.5 weight or as multipliers on existing terms by convention.
 - **Diversity is now perceptual, not just metadata** — `select_clips` applies a near_dup hard skip (Phase A) AND an MMR re-rank over a top-80 score pool (Phase C). Metadata-level windows (`VARIETY_WINDOW`, `SCENE_VARIETY_WINDOW`) are still in place; MMR closes the gap when "different filename" still meant "same image." See `lessons.md` "# Selection side".
 - **Hash-suffix duplicate filenames are silent corpus poisoning** — analyzer reruns can produce both `X.webm` and `X-abc123.webm` as separate "sources." Audit periodically with `scripts/audit_repeats.py` or grep `enriched/` for paired `-[a-f0-9]{5,6}` suffixes. Dedup offsite (don't just rm without backup).
@@ -175,7 +175,7 @@ The assembler (`assemble_v2.py`) only needs numpy and FFmpeg — it reads pre-co
 
 - Source videos are on an external drive (`/Volumes/archive/`). The drive must be mounted for analysis, enrichment, text scanning, and assembly.
 - Some source filenames contain Japanese characters and special characters. Path matching uses fuzzy substring comparison to handle Unicode normalization differences.
-- The `.deep-analysis.json` files are **13-15 MB each on schema 2.1.0** (down from 37-44 MB on 2.0.0 — see Phase 4 pruning in `audio_field_audit.md`).
+- The `.deep-analysis.json` files are **13-15 MB each on schema 2.2.0** (down from 37-44 MB on 2.0.0 — see Phase 4 pruning in `audio_field_audit.md`).
 - Generated music videos are 2-3 GB each.
 - Vision model inference is slow (~45-65 seconds per frame via Ollama; MLX is ~1.9× faster). The fast text scanner mitigates this with adaptive sampling.
 - `sets/` may be a **symlink** into the archive drive on dev machines (`ln -s /Volumes/archive/temp/media-analysis/sets sets`). The assembler resolves `analysis` paths via `BASE_DIR / "sets" / ...`. Untracked, gitignored.

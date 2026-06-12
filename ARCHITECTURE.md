@@ -182,14 +182,14 @@ Two scanners exist:
 
 ### Deep Audio Analysis (`.deep-analysis.json`)
 
-Schema **2.1.0**. Multi-dimensional audio feature extraction at 8 Hz. The
+Schema **2.2.0**. Multi-dimensional audio feature extraction at 8 Hz. The
 per-field contract (which fields are persisted, which are consumed, which are
 strategic latent signals) is the authoritative reference for what stays in
 this file: see [`audio_field_audit.md`](audio_field_audit.md).
 
 ```
 {
-  "schema_version": "2.1.0",
+  "schema_version": "2.2.0",
   "analyzer": "dj-set-analyzer-deep",
   "file": { "name", "path", "duration_sec", "sample_rate" },
   "global": { "bpm", "bpm_range", "beat_count", "key", "onset_count", "onset_rate_per_sec" },
@@ -198,7 +198,8 @@ this file: see [`audio_field_audit.md`](audio_field_audit.md).
     "ioi_outlier_count", "ioi_outlier_pct",
     "octave_doubling_pct", "octave_doubling_run_max",
     "metronomic_deviation_max_sec", "metronomic_deviation_final_sec",
-    "metronomic_deviation_valid"
+    "metronomic_deviation_valid",
+    "octave_corrected_windows", "octave_corrected_times_sec"
   },
   "tracks": [
     {
@@ -212,7 +213,9 @@ this file: see [`audio_field_audit.md`](audio_field_audit.md).
     }
   ],
   "transitions": [ { "from_track", "to_track", "boundary_sec", "energy_*", "bass_*", "bpm_*", "hp_ratio_*", "flux_*", "type" } ],
-  "beats": { "times_sec": [...] },
+  "beats": { "times_sec": [...], "downbeats_sec": [...],
+             "downbeat_estimator", "downbeat_bar_offset", "downbeat_bar_margin",
+             "phrase_anchor_offset", "phrase_anchor_candidate_16", "phrase_anchor_margin" },
   "bpm_timeline": [ { "time_sec", "bpm", "confidence" } ],
   "multiband_energy": [ { "time_sec", "total_rms", "sub_bass", "bass", "presence", "brilliance" } ],
   "hpss_timeline": [ { "time_sec", "harmonic", "percussive" } ],
@@ -249,6 +252,19 @@ sets with tempo ramping. See `lessons.md` under "# Audio side".
 **`bpm_timeline.confidence`** is consumed by the assembler (see scoring table
 below). Pre-2.1.0 files lack it; assembler's `.get()` defaults preserve
 existing behavior on those.
+
+**Schema 2.2.0 vs 2.1.0 (cut-timing refinement):** `phrases[].end_sec` is now
+the start of the *next* phrase (full musical span; pre-2.2.0 undershot by one
+beat and the assembler compensated — the workaround is now gated on
+`schema_version`). `bpm_timeline` is repaired before persisting: octave-locked
+windows are folded onto the rolling median and keep `confidence × 0.25`
+(`beat_quality.octave_corrected_*` records the corrections). `beats` gains a
+*heuristic* downbeat estimate (`downbeats_sec` + margins) persisted for
+observability/audit; phrase anchoring stays opt-in (`--anchor-phrases`)
+because the candidate signals disagree on this corpus (see lessons.md). The
+assembler additionally snaps planned cut frames to `beats.times_sec` and
+moves phrase boundaries off sung words (`adjust_cuts_for_vocals`, word-level
+Whisper timings, ±2 beats max shift) before clip selection.
 
 ### Lyrics (`.lyrics.json`)
 

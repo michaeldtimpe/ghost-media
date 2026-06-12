@@ -2,6 +2,13 @@
 
 Authoritative source of truth for what each field in `.deep-analysis.json` is for, who reads it, and whether it stays. This doc is referenced by `lessons.md`'s Audio section and gates Phase 4 of the audio rigor uplift.
 
+## Schema 2.2.0 changes (cut-timing refinement, 2026-06)
+
+- **`phrases[].end_sec` semantics changed**: now the start of the NEXT phrase (the beat after the chunk's last beat), so `[start_sec, end_sec)` spans the full musical phrase. Pre-2.2.0 it was the last beat's *timestamp*, undershooting by one beat — every assembler cut landed one beat early (cut-alignment audit: median cut→next-phrase gap = exactly one beat period on all 5 sets). The assembler's one-beat extension workaround is now gated on `schema_version < 2.2.0`.
+- **`bpm_timeline` is repaired before persisting**: half/double-tempo locked windows (librosa octave locks at DJ transitions) are folded onto the rolling local median; folded windows keep `confidence × 0.25` so the assembler's dur-match weighting distrusts them. See `repair_bpm_timeline`.
+- **`beat_quality.octave_corrected_windows` / `.octave_corrected_times_sec`**: count + locations of folded windows (validation still runs on the raw timeline first, so `octave_doubling_pct` keeps measuring librosa's behavior).
+- **`beats.downbeats_sec` + estimator fields** (`downbeat_estimator`, `downbeat_bar_offset`, `downbeat_bar_margin`, `phrase_anchor_offset`, `phrase_anchor_candidate_16`, `phrase_anchor_margin`): HEURISTIC bass-arrival downbeat estimate, persisted for observability and the cut-alignment audit only. Candidate signals disagree on this corpus (lessons.md), so phrase anchoring stays opt-in (`--anchor-phrases`); `phrase_anchor_offset` records what was actually applied (0 unless opted in).
+
 Reference set: `sets/arche august dj set rev 4.deep-analysis.json` (37.1 MB, 4159s duration, 35,831 timeline samples at 8 fps, 546 4-bar phrases). Field sizes are bytes for this set; ratios are stable across sets.
 
 **Role legend:**

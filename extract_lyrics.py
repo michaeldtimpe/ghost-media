@@ -464,6 +464,42 @@ def run_set(set_name, set_config):
     return True
 
 
+def remap_set(set_name, set_config):
+    """Rebuild phrase_lyrics + track mapping from the existing segments in
+    .lyrics.json against the current deep-analysis JSON — no Demucs/Whisper
+    re-run. Needed whenever re-analysis changes phrase spans or indices
+    (e.g. the 2.2.0 end_sec fix)."""
+    output_path = OUTPUT_DIR / f"{set_name}.lyrics.json"
+    analysis_path = OUTPUT_DIR / set_config["analysis"]
+    if not output_path.exists():
+        print(f"  ✗ {set_name}: no .lyrics.json to remap (run full extraction first)")
+        return False
+    if not analysis_path.exists():
+        print(f"  ✗ {set_name}: analysis missing: {analysis_path.name}")
+        return False
+
+    data = json.loads(output_path.read_text())
+    segments = data.get("segments", [])
+    segments, track_summary = map_to_tracks(segments, analysis_path)
+
+    phrase_lyrics = {
+        "four_bar": build_phrase_lyrics(segments, analysis_path, "four_bar"),
+        "eight_bar": build_phrase_lyrics(segments, analysis_path, "eight_bar"),
+        "sixteen_bar": build_phrase_lyrics(segments, analysis_path, "sixteen_bar"),
+    }
+    data["segments"] = segments
+    data["track_summary"] = track_summary
+    data["phrase_lyrics"] = phrase_lyrics
+    data.setdefault("stats", {})["phrases_with_lyrics"] = {
+        k: len(v) for k, v in phrase_lyrics.items()}
+    data["remapped_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    output_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    print(f"  ✓ {set_name}: phrase_lyrics rebuilt "
+          f"({', '.join(f'{k}={len(v)}' for k, v in phrase_lyrics.items())})")
+    return True
+
+
 def show_status():
     """Show lyrics extraction status for all sets."""
     print(f"\n  ═══════════════════════════════════════════════════════════════")
@@ -501,6 +537,9 @@ def main():
                         help=f"Whisper model size (default: {WHISPER_MODEL})")
     parser.add_argument("--reseparate", action="store_true",
                         help="Force re-run Demucs even if vocals exist")
+    parser.add_argument("--remap-only", action="store_true",
+                        help="Rebuild phrase_lyrics from existing segments against "
+                             "the current analysis JSON (no Demucs/Whisper)")
     args = parser.parse_args()
 
     WHISPER_MODEL = args.whisper_model
@@ -508,6 +547,12 @@ def main():
     if args.status:
         show_status()
         return
+
+    if args.remap_only:
+        sets = {args.set: SET_CONFIGS[args.set]} if args.set else SET_CONFIGS
+        print(f"\n  Remapping phrase_lyrics for {len(sets)} set(s)...")
+        ok = all([remap_set(name, cfg) for name, cfg in sets.items()])
+        sys.exit(0 if ok else 1)
 
     # Check dependencies
     print(f"\n  Checking dependencies...")
