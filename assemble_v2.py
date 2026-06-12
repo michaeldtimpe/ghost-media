@@ -133,6 +133,15 @@ QUALITY_PENALTY_WEIGHT = 3.0  # soft penalty for dead scenes: -(1-quality)*this 
 FPS = 30                   # output frame rate; all durations are planned as frame counts
 SPEED_FIT_MIN = 0.7        # slowest playback (slow-mo) used to stretch a scene onto a phrase
 SPEED_FIT_MAX = 1.35       # fastest playback used to compress a scene onto a phrase
+
+# Beat-locked looping: retune loop/pingpong cycles to an integer number of
+# beats so the seam lands ON the beat — visible repetition reads as rhythm,
+# not glitch. Constant-rate only (no ramps); falls back to native-speed
+# loop/pingpong when no integer beat count fits within the speed band.
+BEATLOOP_SPEED_MIN = 0.8
+BEATLOOP_SPEED_MAX = 1.25
+BEATLOOP_BPM_MIN = 60.0    # distrust phrase BPM outside this band
+BEATLOOP_BPM_MAX = 200.0
 PINGPONG_MAX_SCENE = 15.0  # ping-pong only for scenes ≤ this — ffmpeg reverse buffers
                            # the whole clip in RAM (~3 MB/frame at 1080p)
 
@@ -1132,6 +1141,66 @@ def merge_phrases_adaptive(phrase_features):
     return merged
 
 
+def _beatlock_cycle(natural_cycle_sec, bpm, beats=None, start_sec=0.0, n_frames=0):
+    """Fit a loop/pingpong cycle to an integer beat count.
+
+    Returns (speed, cycle_frames) — playback rate (setpts=PTS/speed) that
+    makes the cycle land on the beat grid, and that retimed cycle's frame
+    count — or None when nothing fits the beat-lock speed band.
+
+    With only a bpm, candidates are k·beat_sec cycles and the one nearest
+    native speed wins. When the actual beat array is provided, candidates
+    also include cycles anchored to the real beat positions, and each is
+    scored by the mean distance of its seams (start + j·cycle) to the
+    actual beats — the grid wobbles off any fixed lattice, so optimizing
+    against real beats beats trusting the average period.
+    """
+    if not (BEATLOOP_BPM_MIN <= bpm <= BEATLOOP_BPM_MAX) or natural_cycle_sec <= 0:
+        return None
+    beat_sec = 60.0 / bpm
+    k0 = int(round(natural_cycle_sec / beat_sec))
+
+    bt = None
+    idx0 = 0
+    if beats is not None and len(beats) and n_frames > 0:
+        bt = np.asarray(beats, dtype=np.float64)
+        idx0 = int(np.searchsorted(bt, start_sec - 1e-3))
+
+    candidates = set()
+    for k in (k0 - 1, k0, k0 + 1):
+        if k < 1:
+            continue
+        candidates.add(int(round(k * beat_sec * FPS)))
+        # Anchor variant: first seam exactly on the k-th actual beat.
+        if bt is not None and idx0 + k < len(bt):
+            candidates.add(int(round((bt[idx0 + k] - start_sec) * FPS)))
+
+    best = None  # (score, |speed-1|, speed, cf)
+    for cf in candidates:
+        if cf < 2:
+            continue
+        speed = natural_cycle_sec / (cf / FPS)
+        if not (BEATLOOP_SPEED_MIN <= speed <= BEATLOOP_SPEED_MAX):
+            continue
+        if bt is not None and n_frames // cf > 0:
+            seams = [start_sec + j * cf / FPS for j in range(1, n_frames // cf + 1)]
+            dists = []
+            for s in seams:
+                i = int(np.searchsorted(bt, s))
+                d = min((abs(bt[j] - s) for j in (i - 1, i) if 0 <= j < len(bt)),
+                        default=0.0)
+                dists.append(d)
+            score = float(np.mean(dists))
+        else:
+            score = 0.0  # no visible seams (or no grid): any in-band cf is fine
+        key = (score, abs(speed - 1.0))
+        if best is None or key < best[:2]:
+            best = (*key, speed, cf)
+    if best is None:
+        return None
+    return best[2], best[3]
+
+
 def _snap_to_beat(t, beat_grid):
     """Nearest beat to t, or t itself if no grid is available."""
     if beat_grid is None or not len(beat_grid):
@@ -1303,12 +1372,28 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
         n_frames = max(end_frame - frames_emitted, FPS)  # never under 1s
         target_dur = n_frames / FPS
         frames_emitted += n_frames
+        # Audio-timeline instant where this clip begins in the render —
+        # the reference for beat-locked seam placement.
+        clip_audio_start = timeline_start + (frames_emitted - n_frames) / FPS
 
         scene_dur = best_clip.duration_sec
         render_mode = "window"
         speed = 1.0
         clip_start = best_clip.start_sec
         src_duration = target_dur
+        cycle_frames = None
+
+        # Beat period for beat-locked cycles: prefer the LOCAL beat grid's
+        # median IOI over phrase.bpm (a windowed average) — locking to the
+        # average drifts seams off the actual beats when tempo ramps.
+        local_bpm = phrase.bpm
+        if beat_grid is not None and len(beat_grid):
+            i0 = int(np.searchsorted(beat_grid, phrase.start_sec))
+            i1 = int(np.searchsorted(beat_grid, phrase.end_sec))
+            if i1 - i0 >= 4:
+                local_ioi = float(np.median(np.diff(beat_grid[i0:i1 + 1])))
+                if local_ioi > 0:
+                    local_bpm = 60.0 / local_ioi
 
         if scene_dur >= target_dur * SPEED_FIT_MAX:
             # Long scene: cut a phrase-length window. Vary the offset so a
@@ -1323,19 +1408,37 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
             speed = scene_dur / target_dur
             src_duration = scene_dur
         elif best_clip.loopable:
-            # Detected seamless loop: repeat as-is.
+            # Detected seamless loop: repeat, beat-locked when a cycle of
+            # k beats fits the speed band (seams land on beats).
             render_mode = "loop"
             src_duration = scene_dur
+            fit = _beatlock_cycle(scene_dur, local_bpm, beat_grid,
+                                  clip_audio_start, n_frames)
+            if fit:
+                render_mode = "beatloop"
+                speed, cycle_frames = fit
         elif scene_dur <= PINGPONG_MAX_SCENE:
             # Forward-reverse cycling fills any phrase from any short scene
-            # with no visible seam.
+            # with no visible seam. Full cycle = forward + reverse.
             render_mode = "pingpong"
             src_duration = scene_dur
+            fit = _beatlock_cycle(2 * scene_dur, local_bpm, beat_grid,
+                                  clip_audio_start, n_frames)
+            if fit:
+                render_mode = "beatpingpong"
+                speed, cycle_frames = fit
         else:
             # Mid-length scene, too long to reverse in RAM: plain loop
             # (jump cut at the loop point — rare; scenes 15s–0.7×phrase).
+            # Beat-locking matters most here: the jump cut becomes a cut
+            # ON the beat instead of a mid-bar glitch.
             render_mode = "loop"
             src_duration = scene_dur
+            fit = _beatlock_cycle(scene_dur, local_bpm, beat_grid,
+                                  clip_audio_start, n_frames)
+            if fit:
+                render_mode = "beatloop"
+                speed, cycle_frames = fit
 
         selections.append({
             "phrase_index": i,
@@ -1352,6 +1455,7 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
             "render_mode": render_mode,
             "speed": round(speed, 4),
             "src_duration": round(src_duration, 3),
+            "cycle_frames": cycle_frames,
             "clip_motion": round(best_clip.motion_mean, 2),
             "clip_brightness": round(best_clip.brightness_mean, 3),
             "clip_color_temp": round(best_clip.color_temperature, 3),
@@ -1430,14 +1534,19 @@ def render_black_filler(output_path, n_frames):
 
 
 def extract_clip(source_path, start_sec, output_path, n_frames,
-                 render_mode="window", speed=1.0, src_duration=None):
+                 render_mode="window", speed=1.0, src_duration=None,
+                 cycle_frames=None):
     """Render exactly n_frames at FPS from a source scene.
 
-    window   — cut n_frames straight from start_sec (scene ≥ phrase)
-    speedfit — play the whole scene speed-adjusted via setpts to land exactly
-    loop     — repeat the scene start-to-start (loopable-flagged or too long
-               to reverse)
-    pingpong — forward+reverse cycle repeated to fill (seamless for any scene)
+    window       — cut n_frames straight from start_sec (scene ≥ phrase)
+    speedfit     — play the whole scene speed-adjusted via setpts to land exactly
+    loop         — repeat the scene start-to-start (loopable-flagged or too long
+                   to reverse)
+    pingpong     — forward+reverse cycle repeated to fill (seamless for any scene)
+    beatloop /   — loop/pingpong with the cycle retimed (setpts, constant rate)
+    beatpingpong   to exactly cycle_frames = k beats, so every seam lands on a
+                   beat. The cycle file is built frame-exact (-frames:v + tpad),
+                   so seams can't drift across repetitions.
 
     All modes are frame-counted (-frames:v), never wall-clock (-t output):
     the sync contract is "rendered frames == planned frames". tpad clones
@@ -1460,33 +1569,49 @@ def extract_clip(source_path, start_sec, output_path, n_frames,
                "-frames:v", str(n_frames), *ENC_ARGS, str(output_path)]
         subprocess.run(cmd, capture_output=True, timeout=300)
 
-    else:  # loop / pingpong — two-step via an intermediate cycle file
+    else:  # loop / pingpong (± beat-lock) — two-step via an intermediate cycle file
+        pingpong = render_mode in ("pingpong", "beatpingpong")
+        beat_locked = render_mode in ("beatloop", "beatpingpong") and cycle_frames
+        # setpts before fps: retime the source, then resample to CFR.
+        retime = f"setpts=PTS/{speed:.6f}," if beat_locked and abs(speed - 1.0) > 1e-6 else ""
         cycle = output_path.with_suffix(".cycle.mp4")
-        if render_mode == "pingpong":
+        frame_cap = ["-frames:v", str(cycle_frames)] if beat_locked else []
+        if pingpong:
+            # trim=start_frame=1 drops the reversed half's first frame
+            # — it duplicates the forward half's last frame, which
+            # stutters at the seam and gets dropped (with a timestamp
+            # gap) by the later concat-copy.
+            graph = (f"[0:v]{BASE_VF},{retime}fps={FPS},split[f][b];"
+                     f"[b]reverse,trim=start_frame=1,setpts=PTS-STARTPTS[r];"
+                     f"[f][r]concat=n=2:v=1[v]")
+            out_label = "[v]"
+            if beat_locked:
+                graph += ";[v]tpad=stop_mode=clone:stop=8[vo]"
+                out_label = "[vo]"
             cmd1 = ["ffmpeg", "-y", "-ss", str(start_sec), "-t", str(src_duration),
                     "-i", source_path,
-                    "-filter_complex",
-                    # trim=start_frame=1 drops the reversed half's first frame
-                    # — it duplicates the forward half's last frame, which
-                    # stutters at the seam and gets dropped (with a timestamp
-                    # gap) by the later concat-copy.
-                    f"[0:v]{BASE_VF},fps={FPS},split[f][b];"
-                    f"[b]reverse,trim=start_frame=1,setpts=PTS-STARTPTS[r];"
-                    f"[f][r]concat=n=2:v=1[v]",
-                    "-map", "[v]", *ENC_ARGS, str(cycle)]
+                    "-filter_complex", graph, "-map", out_label,
+                    *frame_cap, *ENC_ARGS, str(cycle)]
         else:
+            vf = f"{BASE_VF},{retime}fps={FPS}"
+            if beat_locked:
+                vf += ",tpad=stop_mode=clone:stop=8"
             cmd1 = ["ffmpeg", "-y", "-ss", str(start_sec), "-t", str(src_duration),
                     "-i", source_path,
-                    "-vf", f"{BASE_VF},fps={FPS}", *ENC_ARGS, str(cycle)]
+                    "-vf", vf,
+                    *frame_cap, *ENC_ARGS, str(cycle)]
         subprocess.run(cmd1, capture_output=True, timeout=300)
         if not cycle.exists() or cycle.stat().st_size < 1000:
             return False
 
-        # Conservative cycle length (could be ±2 frames after fps rounding):
-        # underestimate so we always loop *enough*; surplus is trimmed.
-        per_pass = max(int(src_duration * FPS) - 2, 1)
-        cycle_frames = per_pass * (2 if render_mode == "pingpong" else 1)
-        loops = math.ceil(n_frames / cycle_frames)  # stream_loop N = N+1 plays
+        if beat_locked:
+            per_cycle = cycle_frames
+        else:
+            # Conservative cycle length (could be ±2 frames after fps rounding):
+            # underestimate so we always loop *enough*; surplus is trimmed.
+            per_pass = max(int(src_duration * FPS) - 2, 1)
+            per_cycle = per_pass * (2 if pingpong else 1)
+        loops = math.ceil(n_frames / per_cycle)  # stream_loop N = N+1 plays
         cmd2 = ["ffmpeg", "-y", "-stream_loop", str(loops), "-i", str(cycle),
                 "-frames:v", str(n_frames), *ENC_ARGS, str(output_path)]
         subprocess.run(cmd2, capture_output=True, timeout=300)
@@ -1521,6 +1646,7 @@ def assemble_video(selections, output_path, audio_path, output_dir=None, global_
             render_mode=sel.get("render_mode", "window"),
             speed=sel.get("speed", 1.0),
             src_duration=sel.get("src_duration"),
+            cycle_frames=sel.get("cycle_frames"),
         )
         if not ok:
             # Frame-exact contract: a failed clip still occupies its frames
@@ -1829,8 +1955,10 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
     for s in selections:
         mode_counts[s["render_mode"]] = mode_counts.get(s["render_mode"], 0) + 1
     distinct_scenes = len(set((s["clip_source_name"], s["scene_index"]) for s in selections))
-    speeds = [s["speed"] for s in selections if s["render_mode"] == "speedfit"]
-    speed_info = (f"  |  speedfit range {min(speeds):.2f}x–{max(speeds):.2f}x"
+    speeds = [s["speed"] for s in selections
+              if s["render_mode"] in ("speedfit", "beatloop", "beatpingpong")
+              and abs(s["speed"] - 1.0) > 1e-6]
+    speed_info = (f"  |  retimed range {min(speeds):.2f}x–{max(speeds):.2f}x"
                   if speeds else "")
     print(f"    Render modes: "
           + "  ".join(f"{m}:{c}" for m, c in sorted(mode_counts.items(), key=lambda x: -x[1]))
