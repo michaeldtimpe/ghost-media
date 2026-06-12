@@ -28,23 +28,48 @@ The rendered `.mp4`s are outputs; only the `.deep-analysis.json` and
 `.lyrics.json` files are pipeline inputs.
 
 ### Archive-drive media (needed for rendering + analysis, not for selection-only work)
-- **Source footage**: `/Volumes/archive/3000/3100/visuals/raw visuals footage` (57 videos)
+- **Source footage** (single canonical root): `/Volumes/archive/3000/3100/visuals/library/`
+  with one subdir per collection — `raw/` (the original corpus),
+  `arche-loops/`, `synesthesia/`, `hungry-ghost/`, `_staging/` (pre-import
+  parking; excluded from the live index).
 - **DJ-set audio**: `/Volumes/archive/3000/3100/sets` (per-set dirs with masters)
 
-## 2. Hardcoded paths to update
+## 2. Media paths (one module, env-overridable)
 
-`assemble_v2.py` has two absolute constants — everything else is
-`BASE_DIR`-relative:
+All media locations live in **`media_paths.py`** — every script imports from
+it; nothing else hardcodes archive paths:
 
 ```python
-SOURCE_DIR = Path("/Volumes/archive/3000/3100/visuals/raw visuals footage")
-SETS_DIR   = Path("/Volumes/archive/3000/3100/sets")   # SET_CONFIGS audio paths derive from this
+FOOTAGE_ROOT  # default /Volumes/archive/3000/3100/visuals/library   (env GHOST_FOOTAGE_ROOT)
+SETS_ROOT     # default /Volumes/archive/3000/3100/sets              (env GHOST_SETS_ROOT)
+CACHE_ROOT    # default ~/ghost-media-cache                          (env GHOST_MEDIA_CACHE)
 ```
 
-Point these at the new media locations (or mount the archive at the same
-path). `find_source_video()` fuzzy-matches filenames inside `SOURCE_DIR`, so
-the footage can live anywhere as long as the constant is right — the paths
-recorded inside old `.analysis.json` files do **not** need to be valid.
+On a new host, either mount the archive at the same path or set the env
+vars. `media_paths.find_source()` resolves via a one-time recursive filename
+index (NFC-normalized — macOS/SMB filesystems return NFD names) with the old
+fuzzy fallback, so the paths recorded inside `.analysis.json` files do
+**not** need to be valid. Run `scripts/remap_media_paths.py --apply` to
+canonicalize them anyway, and use its default verify mode (`exit 0` = every
+analysis resolves to exactly one file, no duplicate filenames across
+collections) as the post-move health check.
+
+### Local cache (gigabit-ethernet hosts)
+
+Batch analysis makes ~5 decode passes per video (scene detect, motion,
+embeddings, text scan, loops); warm a collection onto local NVMe and point
+the whole pipeline at it via the env override:
+
+```bash
+python3 media_paths.py --warm hungry-ghost
+GHOST_FOOTAGE_ROOT=~/ghost-media-cache/library python3 analyze_visuals_library.py ...
+# afterwards: python3 scripts/remap_media_paths.py --apply   (re-canonicalize stored paths)
+```
+
+`media_paths.cached_path()` additionally offers per-file copy-through with
+LRU eviction at `GHOST_MEDIA_CACHE_MAX_GB` (default 100). The assembler
+reads straight from the NAS by default — its access pattern (a few seeks per
+clip) doesn't benefit enough to justify the copy.
 
 ## 3. Environment setup
 

@@ -38,7 +38,8 @@ from typing import Optional
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
 
-DEFAULT_SOURCE = "/Volumes/archive/3000/3100/visuals/raw visuals footage"
+import media_paths
+DEFAULT_SOURCE = str(media_paths.FOOTAGE_ROOT / "raw")
 DEFAULT_OUTPUT = os.path.expanduser("~/Downloads/ghost-media")
 
 VIDEO_EXTENSIONS = {

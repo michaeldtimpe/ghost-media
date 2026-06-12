@@ -39,7 +39,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
 
-SOURCE_DIR = "/Volumes/archive/3000/3100/visuals/raw visuals footage"
+import media_paths
+SOURCE_DIR = str(media_paths.FOOTAGE_ROOT / "raw")
 OUTPUT_DIR = os.path.expanduser("~/Downloads/ghost-media")
 
 # ─── ANSI ────────────────────────────────────────────────────────────────────

@@ -36,7 +36,8 @@ warnings.filterwarnings("ignore", message=".*pin_memory.*")
 # ─── Configuration ─────────────────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).parent
-SETS_DIR = Path("/Volumes/archive/3000/3100/sets")
+import media_paths
+SETS_DIR = media_paths.SETS_ROOT
 OUTPUT_DIR = BASE_DIR / "sets"
 DEMUCS_DIR = BASE_DIR / "demucs_output"
 

@@ -21,7 +21,10 @@ TEXT_FLAGS_DIR = BASE_DIR / "text_flags"
 # Source footage. Prefer the local staged copies (fast, no archive-drive dependency);
 # fall back to the external archive. resolve_source() searches these in order.
 LOCAL_SOURCE_DIR = BASE_DIR / "raw_footage"
-ARCHIVE_SOURCE_DIR = Path("/Volumes/archive/3000/3100/visuals/raw visuals footage")
+import sys as _sys
+_sys.path.insert(0, str(BASE_DIR))
+import media_paths as _mp
+ARCHIVE_SOURCE_DIR = _mp.FOOTAGE_ROOT / "raw"
 SOURCE_DIRS = [LOCAL_SOURCE_DIR, ARCHIVE_SOURCE_DIR]
 SOURCE_DIR = ARCHIVE_SOURCE_DIR  # back-compat alias
 

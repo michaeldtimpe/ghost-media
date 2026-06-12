@@ -36,7 +36,8 @@ import numpy as np
 ENRICHED_DIR = Path(__file__).parent / "enriched"
 ANALYSIS_PATH = Path(__file__).parent / "sets" / "Mtimpe MIX1 02DEC MASTER MP3 V6.deep-analysis.json"
 AUDIO_PATH = Path("/Volumes/archive/3000/3100/sets/blue-sky-genesis-2025/Mtimpe MIX1 02DEC MASTER MP3  V6  .mp3")
-SOURCE_DIR = Path("/Volumes/archive/3000/3100/visuals/raw visuals footage")
+import media_paths
+SOURCE_DIR = media_paths.FOOTAGE_ROOT / "raw"
 OUTPUT_DIR = Path(__file__).parent / "sets" / "music_video_build"
 FINAL_OUTPUT = Path(__file__).parent / "sets" / "music_video.mp4"
 
@@ -108,7 +109,7 @@ def build_clip_database():
                     source_path = str(candidate)
                     break
                 # Fuzzy match
-                for sf in SOURCE_DIR.iterdir():
+                for sf in media_paths.iter_footage().values():
                     if sf.suffix.lower() == ext and sp.stem[:20] in sf.stem:
                         source_path = str(sf)
                         break

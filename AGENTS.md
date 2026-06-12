@@ -138,7 +138,7 @@ Each set in `SET_CONFIGS` can have a `style_hints` dict:
 
 | Data | Path | Format |
 |------|------|--------|
-| Source videos | `/Volumes/archive/3000/3100/visuals/raw visuals footage/` | MP4/AVI/MOV |
+| Source videos | `/Volumes/archive/3000/3100/visuals/library/<collection>/` (canonical root; see `media_paths.py`, env-overridable) | MP4/AVI/MOV |
 | DJ set audio | `/Volumes/archive/3000/3100/sets/<set-name>/` | MP3 |
 | Video analyses | `*.analysis.json` (project root) | JSON |
 | Enriched analyses | `enriched/*.enriched.json` | JSON |

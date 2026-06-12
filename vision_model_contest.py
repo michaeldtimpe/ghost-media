@@ -57,7 +57,8 @@ TEST_VIDEOS = [
 FRAMES_PER_VIDEO = 6
 OLLAMA_API = "http://localhost:11434"
 
-DEFAULT_SOURCE = "/Volumes/archive/3000/3100/visuals/raw visuals footage"
+import media_paths
+DEFAULT_SOURCE = str(media_paths.FOOTAGE_ROOT / "raw")
 ANALYSIS_DIR = Path(__file__).parent
 CONTEST_DIR = ANALYSIS_DIR / "vision_contest"
 RESULTS_FILE = CONTEST_DIR / "results.json"
