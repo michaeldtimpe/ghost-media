@@ -7,8 +7,8 @@ The system has four independent analysis pipelines that feed into a single assem
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     SOURCE VIDEOS                           │
-│  /Volumes/archive/3000/3100/visuals/raw visuals footage/    │
-│  57 videos: VJ loops, music videos, drone, motion graphics  │
+│  /Volumes/archive/3000/3100/visuals/library/<collection>/   │
+│  collections: raw / arche-loops / synesthesia / hungry-ghost│
 └────────┬──────────────────────┬─────────────────────────────┘
          │                      │
     ┌────▼────┐           ┌─────▼──────┐

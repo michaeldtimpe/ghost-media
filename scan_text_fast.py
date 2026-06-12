@@ -31,7 +31,8 @@ warnings.filterwarnings("ignore", message=".*pin_memory.*")
 
 MODEL = "qwen2.5vl:7b"
 OLLAMA_API = "http://localhost:11434"
-SOURCE_DIR = Path("/Volumes/archive/3000/3100/visuals/raw visuals footage")
+import media_paths
+SOURCE_DIR = media_paths.FOOTAGE_ROOT
 ANALYSIS_DIR = Path(__file__).parent
 OUTPUT_DIR = ANALYSIS_DIR / "text_flags"
 FRAMES_DIR = OUTPUT_DIR / "frames"
@@ -152,7 +153,7 @@ _SOURCE_FILES_CACHE = None
 def _get_source_files():
     global _SOURCE_FILES_CACHE
     if _SOURCE_FILES_CACHE is None:
-        _SOURCE_FILES_CACHE = list(SOURCE_DIR.iterdir()) if SOURCE_DIR.exists() else []
+        _SOURCE_FILES_CACHE = list(media_paths.iter_footage().values())
     return _SOURCE_FILES_CACHE
 
 

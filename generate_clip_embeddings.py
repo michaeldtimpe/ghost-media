@@ -23,7 +23,8 @@ from clip_utils import (CLIP_MODEL, CLIP_PRETRAINED, BATCH_SIZE,
 
 BASE_DIR = Path(__file__).parent
 ENRICHED_DIR = BASE_DIR / "enriched"
-SOURCE_DIR = Path("/Volumes/archive/3000/3100/visuals/raw visuals footage")
+import media_paths
+SOURCE_DIR = media_paths.FOOTAGE_ROOT
 TMP_DIR = Path("/tmp/clip_embed_frames")
 
 
@@ -39,10 +40,10 @@ def find_source_video(file_info):
     if original_path.exists():
         return str(original_path)
     sanitized_target = _sanitize_for_match(original_path.stem)
-    for candidate in SOURCE_DIR.iterdir():
+    for candidate in media_paths.iter_footage().values():
         if original_path.stem[:25] in candidate.stem or candidate.stem[:25] in original_path.stem:
             return str(candidate)
-    for candidate in SOURCE_DIR.iterdir():
+    for candidate in media_paths.iter_footage().values():
         sanitized_candidate = _sanitize_for_match(candidate.stem)
         if len(sanitized_target) > 10 and len(sanitized_candidate) > 10:
             if sanitized_target[:25] in sanitized_candidate or sanitized_candidate[:25] in sanitized_target:

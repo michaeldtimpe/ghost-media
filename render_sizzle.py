@@ -488,7 +488,8 @@ def render_segment(data, start_sec, duration_sec, label, output_dir, seg_index):
 
 def main():
     analysis_path = Path("sets/Mtimpe MIX1 02DEC MASTER MP3 V6.deep-analysis.json")
-    audio_path = Path("/Volumes/archive/3000/3100/sets/blue-sky-genesis-2025/Mtimpe MIX1 02DEC MASTER MP3  V6  .mp3")
+    import media_paths
+    audio_path = media_paths.SETS_ROOT / "blue-sky-genesis-2025" / "Mtimpe MIX1 02DEC MASTER MP3  V6  .mp3"
     output_dir = Path("sets/sizzle_render")
     final_output = Path("sets/sizzle_reel.mp4")
 

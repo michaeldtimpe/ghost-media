@@ -45,7 +45,8 @@ OLLAMA_API = "http://localhost:11434"
 # Set in main() from --backend/--model (or $GHOST_VISION_BACKEND); defaults to ollama.
 BACKEND = None
 
-DEFAULT_SOURCE = "/Volumes/archive/3000/3100/visuals/raw visuals footage"
+import media_paths
+DEFAULT_SOURCE = str(media_paths.FOOTAGE_ROOT / "raw")
 ANALYSIS_DIR = Path(__file__).parent
 ENRICHMENT_DIR = ANALYSIS_DIR / "enriched"
 STATE_FILE = ENRICHMENT_DIR / "state.json"

@@ -46,8 +46,11 @@ import numpy as np
 BASE_DIR = Path(__file__).parent
 ENRICHED_DIR = BASE_DIR / "enriched"
 TEXT_FLAGS_DIR = BASE_DIR / "text_flags"
-SOURCE_DIR = Path("/Volumes/archive/3000/3100/visuals/raw visuals footage")
-SETS_DIR = Path("/Volumes/archive/3000/3100/sets")
+# Canonical media locations + filename index live in media_paths
+# (env-overridable: GHOST_FOOTAGE_ROOT / GHOST_SETS_ROOT / GHOST_MEDIA_CACHE).
+import media_paths
+SOURCE_DIR = media_paths.FOOTAGE_ROOT
+SETS_DIR = media_paths.SETS_ROOT
 
 # Set definitions: analysis file → audio file → output name
 SET_CONFIGS = {
@@ -268,23 +271,8 @@ def _sanitize_for_match(name):
 
 
 def find_source_video(file_info):
-    """Find the actual source video file."""
-    original_path = Path(file_info.get("path", ""))
-    if original_path.exists():
-        return str(original_path)
-    # Try source dir — first by prefix match, then by sanitized fuzzy match
-    sanitized_target = _sanitize_for_match(original_path.stem)
-    for candidate in SOURCE_DIR.iterdir():
-        if original_path.stem[:25] in candidate.stem or candidate.stem[:25] in original_path.stem:
-            return str(candidate)
-    # Fuzzy match: strip all special chars and compare
-    for candidate in SOURCE_DIR.iterdir():
-        sanitized_candidate = _sanitize_for_match(candidate.stem)
-        # Check if one is a substring of the other (handles truncation + sanitization)
-        if len(sanitized_target) > 10 and len(sanitized_candidate) > 10:
-            if sanitized_target[:25] in sanitized_candidate or sanitized_candidate[:25] in sanitized_target:
-                return str(candidate)
-    return str(original_path)  # return anyway, extraction will fail gracefully
+    """Find the actual source video file (filename index + fuzzy fallback)."""
+    return media_paths.find_source(file_info)
 
 
 def load_text_flags():

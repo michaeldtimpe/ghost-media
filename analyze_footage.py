@@ -6,7 +6,7 @@ Designed for large local media libraries — automatically scales analysis
 resolution based on file size/duration to keep processing time reasonable.
 
 Usage:
-    python analyze_footage.py "/Volumes/archive/3000/3100/visuals/raw visuals footage"
+    python analyze_footage.py "/Volumes/archive/3000/3100/visuals/library/raw"
 
 Output goes to ~/Downloads/ghost-media/ by default.
 """
