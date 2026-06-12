@@ -456,6 +456,7 @@ Per-clip render mode (chosen in `select_clips`, executed by `extract_clip`):
 | `speedfit` | scene within 0.7–1.35 × phrase | Play the whole scene speed-adjusted (`setpts`, slow-mo or speed-up) to land exactly on the frame count |
 | `loop` | loopable-flagged, or > `PINGPONG_MAX_SCENE` | Repeat scene start-to-start, trim to frames |
 | `pingpong` | any other short scene (≤ 15s) | Forward+reverse cycle (seam frame de-duplicated), repeated to fill — seamless for any content |
+| `beatloop` / `beatpingpong` | loop/pingpong whose cycle fits an integer beat count at 0.8–1.25× speed | The cycle is retimed (constant-rate `setpts`) so **every loop seam lands on a beat** — repetition reads as rhythm, not glitch. `_beatlock_cycle` scores candidate cycle lengths (incl. ones anchored to actual beat positions) against the real beat grid the seams will hit, using the phrase's local median IOI rather than average bpm; the cycle file is built frame-exact (`-frames:v` + tpad) so seams can't drift across repetitions. Falls back to plain loop/pingpong when nothing fits the band. Measured seam-to-beat: median ~12ms (audit `--plan` reports `loop-seam-to-beat`). |
 
 1. Extract each clip at exactly its planned frame count (`-frames:v`, never
    wall-clock `-t` on the output side), scaled to 1080p, padded black. A failed

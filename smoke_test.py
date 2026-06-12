@@ -94,6 +94,7 @@ def main():
 
     cut_timing_checks()
     salvage_checks()
+    beatlock_checks()
     bench_checks(rng)
 
     print("  " + "─" * 60)
@@ -163,6 +164,47 @@ def cut_timing_checks():
     pfs, moved, merged = a.adjust_cuts_for_vocals([p1, p2], segs, beats)
     check("word-clear boundary untouched",
           moved == 0 and merged == 0 and pfs[0].end_sec == 4.0)
+
+
+def beatlock_checks():
+    """Beat-locked loop cycle fitting (constant-rate retiming)."""
+    print("\n  BEAT-LOCKED LOOPS")
+    print("  " + "─" * 60)
+
+    # 120 BPM → beat = 0.5s. A 4.1s natural cycle fits k=8 beats (4.0s)
+    # at speed 1.025 — within [0.8, 1.25] and nearest to 1.0.
+    fit = a._beatlock_cycle(4.1, 120.0)
+    check("4.1s cycle @120bpm → k=8 beats", fit is not None)
+    speed, frames = fit
+    check("speed = natural/(k·beat)", abs(speed - 4.1 / 4.0) < 1e-9)
+    check("cycle_frames = k·beat·FPS", frames == round(8 * 0.5 * a.FPS))
+
+    # Exact fit → speed exactly 1.0.
+    speed, frames = a._beatlock_cycle(4.0, 120.0)
+    check("exact fit → speed 1.0", speed == 1.0 and frames == 120)
+
+    # A cycle far from any integer beat count within the band → None.
+    # 0.6s @120bpm: k=1 → speed 1.2 (in band) — so use a tempo where
+    # nothing lands: 0.65s @60bpm: k=1 → 0.65 (out), k=0 invalid.
+    check("unfittable cycle → None", a._beatlock_cycle(0.65, 60.0) is None)
+
+    # Garbage BPM → None (don't trust the grid there).
+    check("out-of-band bpm → None", a._beatlock_cycle(4.0, 30.0) is None
+          and a._beatlock_cycle(4.0, 500.0) is None)
+
+    # Prefers the k closest to native speed.
+    speed, _ = a._beatlock_cycle(3.8, 120.0)  # k=7→1.086, k=8→0.95
+    check("prefers speed nearest 1.0", abs(speed - 3.8 / 4.0) < 1e-9)
+
+    # Grid-aware: when the actual beats run consistently off the nominal
+    # lattice (tempo drift), seams must track the REAL beats, not the bpm.
+    beats = [i * 0.51 for i in range(40)]  # grid runs 2% slow vs 120bpm
+    speed, cf = a._beatlock_cycle(4.1, 120.0, beats=beats, start_sec=0.0,
+                                  n_frames=480)
+    seams = [j * cf / a.FPS for j in range(1, 480 // cf + 1)]
+    worst = max(min(abs(b - s) for b in beats) for s in seams)
+    check("grid-aware fit tracks drifting beats (seams ≤ 1 frame off)",
+          worst <= 1.0 / a.FPS + 1e-9)
 
 
 def salvage_checks():

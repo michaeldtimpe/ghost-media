@@ -103,6 +103,27 @@ def cut_times_from_plan(plan_path: Path) -> tuple[list[float], list[float]]:
     return cuts, next_starts
 
 
+def seam_distances_from_plan(plan_rows, beat_times) -> np.ndarray:
+    """Loop-seam-to-beat distances (ms) for beat-locked clips in a plan.
+
+    A beat-locked clip's seams land at audio times
+    audio_start + j × cycle_frames/FPS for j = 1..(full cycles).
+    """
+    bt = np.asarray(beat_times, dtype=np.float64)
+    if not len(bt):
+        return np.array([])
+    dists = []
+    for row in plan_rows:
+        cf = row.get("cycle_frames")
+        if not cf or row.get("render_mode") not in ("beatloop", "beatpingpong"):
+            continue
+        n_seams = row["n_frames"] // cf
+        for j in range(1, n_seams + 1):
+            seam = row["audio_start"] + j * cf / av.FPS
+            dists.append(nearest_distance(seam, bt) * 1000.0)
+    return np.array(dists)
+
+
 def load_lyric_spans(set_name: str) -> tuple[list, list]:
     """Return (segment_spans, word_spans) from sets/<set>.lyrics.json, or
     ([], []) if no lyrics file exists."""
@@ -136,10 +157,14 @@ def span_hit(t: float, spans: list, pad: float = 0.0) -> tuple[bool, str]:
 
 
 def audit_set(set_name: str, phrase_bars: int, plan_path: Path | None) -> dict:
+    seam_dists = np.array([])
     if plan_path is not None:
         cuts, next_starts = cut_times_from_plan(plan_path)
         # Beats still come from the set's analysis JSON.
         _, data = phrase_boundaries_fresh(set_name, phrase_bars)
+        seam_dists = seam_distances_from_plan(
+            json.loads(plan_path.read_text()),
+            data.get("beats", {}).get("times_sec", []))
     else:
         phrase_features, data = phrase_boundaries_fresh(set_name, phrase_bars)
         cuts, next_starts = cut_times_from_phrases(
@@ -167,6 +192,7 @@ def audit_set(set_name: str, phrase_bars: int, plan_path: Path | None) -> dict:
     return {
         "set": set_name,
         "n_cuts": len(cuts),
+        "seam_dists_ms": seam_dists,
         "beat_dists_ms": np.array(beat_dists_ms),
         "downbeat_dists_ms": np.array(downbeat_dists_ms),
         "phrase_gaps_ms": np.array(phrase_gaps_ms),
@@ -211,6 +237,10 @@ def emit_report(results: list[dict], out_path: Path) -> None:
         pg = r["phrase_gaps_ms"]
         lines.append(f"  cut→next-phrase gap: median {np.median(pg):6.1f}ms   p90 {np.percentile(pg, 90):6.1f}ms   "
                      f"(undershoot: cut lands this far before the next phrase begins)")
+        sd = r["seam_dists_ms"]
+        if len(sd):
+            lines.append(f"  loop-seam-to-beat: median {np.median(sd):6.1f}ms   "
+                         f"p90 {np.percentile(sd, 90):6.1f}ms   ({len(sd)} beat-locked seams)")
         if r["has_lyrics"]:
             lines.append(f"  mid-segment cuts: {r['mid_segment']}/{r['n_cuts']}    "
                          f"mid-word cuts: {r['mid_word']}/{r['n_cuts']}  ({r['n_words']} word spans)")
