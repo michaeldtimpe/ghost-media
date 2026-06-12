@@ -41,6 +41,7 @@ bench/results/
 # MMR + audit runtime artefacts (re-generated each run)
 bench/mmr_diagnostics.log
 phase0_repeat_audit*.txt
+cut_alignment_audit*.txt
 
 # Local copies of source footage staged for fast benchmarking (also covered by the
 # media extensions above, but listed explicitly).
