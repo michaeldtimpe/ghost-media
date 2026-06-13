@@ -35,7 +35,7 @@ The system has four independent analysis pipelines that feed into a single assem
 │  Merges: scenes + motion + color +   │
 │  brightness + semantics - text +     │
 │  CLIP emb + quality + loop flags     │
-│  ~6,500 usable scenes               │
+│  ~9,700 usable scenes (152-file)    │
 └────────────────┬─────────────────────┘
                  │
                  │   ┌──────────────────────────┐
@@ -320,8 +320,9 @@ The `phrase_lyrics` index maps phrase indices to keyword lists, consumed directl
    (the SSIM check validated the parent's endpoints). Recovers ~43 min of
    footage and returns 3 fully-text-excluded sources to rotation on the
    current corpus. Scenes flagged end-to-end stay excluded.
-5. Result: ~6,400 candidate scenes with full feature vectors (after duration
-   + text filters + salvage, across the 52-source enriched corpus)
+5. Result: ~9,700 candidate scenes with full feature vectors (after duration
+   + text filters + salvage, across the 152-file / 136-source enriched corpus —
+   52 originals + the 2026-06 hungry-ghost import of 100 official music videos)
 
 ### Phrase Feature Extraction
 
