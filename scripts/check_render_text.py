@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import tempfile
 import time
@@ -168,7 +169,10 @@ def main() -> int:
             if ok:
                 confirmed.append((t, row, desc))
                 review_dir.mkdir(parents=True, exist_ok=True)
-                frame.rename(review_dir / f"confirmed_{t:08.1f}s.jpg")
+                # shutil.move, not Path.rename: the temp dir and the render's
+                # review dir are often on different filesystems (/var/folders
+                # vs the NAS-backed sets/), and rename() can't cross devices.
+                shutil.move(str(frame), str(review_dir / f"confirmed_{t:08.1f}s.jpg"))
                 print(f"  ✗ CONFIRMED @ {t:8.1f}s  \"{desc[:60]}\"  ← {attribution(row)}")
             frame.unlink(missing_ok=True)
             if (i + 1) % 200 == 0:
