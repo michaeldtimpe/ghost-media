@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "label": "post_tagging_2026-06",
-  "assembler_commit": "e59e67d",
+  "label": "post_hungry_ghost_import",
+  "assembler_commit": "2022601",
   "phrase_bars": 4,
   "seed": 42,
   "sets": {
@@ -9,61 +9,61 @@
       "n_selections": 534,
       "n_excluded": 0,
       "n_consec_pairs": 533,
-      "consec_mean": 0.6920997493150758,
-      "consec_median": 0.6960300207138062,
-      "consec_p90": 0.805741035938263,
-      "consec_p95": 0.8289277791976929,
+      "consec_mean": 0.6431252530882551,
+      "consec_median": 0.639654815196991,
+      "consec_p90": 0.752460265159607,
+      "consec_p95": 0.7926807641983032,
       "close_pairs_w5": {
-        "0.85": 54,
-        "0.8": 275,
-        "0.75": 746
+        "0.85": 11,
+        "0.8": 79,
+        "0.75": 280
       },
       "close_pairs_w30": {
-        "0.9": 31,
-        "0.85": 313
+        "0.9": 2,
+        "0.85": 61
       },
-      "distinct_sources_used": 41,
-      "max_single_source_count": 21
+      "distinct_sources_used": 136,
+      "max_single_source_count": 5
     },
     "cheerleader-exodus-2025": {
       "n_selections": 699,
       "n_excluded": 0,
       "n_consec_pairs": 698,
-      "consec_mean": 0.6926717914875735,
-      "consec_median": 0.6978723704814911,
-      "consec_p90": 0.8014392137527466,
-      "consec_p95": 0.8256341248750687,
+      "consec_mean": 0.6460484913990627,
+      "consec_median": 0.6433539688587189,
+      "consec_p90": 0.7488600850105287,
+      "consec_p95": 0.783315122127533,
       "close_pairs_w5": {
-        "0.85": 61,
-        "0.8": 345,
-        "0.75": 947
+        "0.85": 14,
+        "0.8": 105,
+        "0.75": 356
       },
       "close_pairs_w30": {
-        "0.9": 36,
-        "0.85": 435
+        "0.9": 3,
+        "0.85": 76
       },
-      "distinct_sources_used": 41,
-      "max_single_source_count": 29
+      "distinct_sources_used": 136,
+      "max_single_source_count": 6
     },
     "boxing-day-2025": {
       "n_selections": 572,
       "n_excluded": 0,
       "n_consec_pairs": 571,
-      "consec_mean": 0.6922206227812792,
-      "consec_median": 0.6933647990226746,
-      "consec_p90": 0.7968713045120239,
-      "consec_p95": 0.8238949477672577,
+      "consec_mean": 0.6433142407449866,
+      "consec_median": 0.6454009413719177,
+      "consec_p90": 0.7465917468070984,
+      "consec_p95": 0.7740533947944641,
       "close_pairs_w5": {
-        "0.85": 56,
-        "0.8": 308,
-        "0.75": 792
+        "0.85": 8,
+        "0.8": 74,
+        "0.75": 261
       },
       "close_pairs_w30": {
-        "0.9": 26,
-        "0.85": 329
+        "0.9": 3,
+        "0.85": 54
       },
-      "distinct_sources_used": 41,
-      "max_single_source_count": 22
+      "distinct_sources_used": 136,
+      "max_single_source_count": 5
     }
   }
 }
