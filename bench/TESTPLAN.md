@@ -3,6 +3,27 @@
 Revised after reviewer feedback. The harness lives in `bench/`; this doc is the
 execution plan: what we test, on what, how we judge, and in what order.
 
+## Hungry-ghost import (2026-06-13 — corpus 52 → 152 files)
+
+100 official music videos (`library/hungry-ghost/`, 12 GB) imported through the
+post-refinement pipeline. Enriched with the production V1 cascade
+(`mlx-qwen7b` + `mlx-internvl` parse-fail fallback) via `--sampling-plan
+--only-new`: **10,680 new distinct states, 31 parse errors (0.3%, scenes left
+semantic-less, handled gracefully)**. Corpus is now **152 enriched files,
+29,247 scenes at 99.9% semantic, 136 sources resolving in the scene DB**.
+
+Effect on the validation sets (selection-only, vs `post_tagging_2026-06`):
+`consec_mean` **0.692 → 0.643**, `consec_p90` **0.80 → 0.75** — markedly less
+adjacent repetition. The per-source usage cap (`max_source_uses =
+phrases/n_sources × 2`) auto-tightened **18 → 6** uses/source as sources grew
+52 → 136, which is the mechanism behind the diversity gain — **no constant
+retune needed** (MMR_POOL=80 is an absolute rerank window, corpus-independent).
+Sub-scene salvage now recovers **+71 min** of footage (560 sub-scenes from 554
+partially-text-flagged videos — official MVs are title/credit heavy: 83/100 had
+text). Repeat audit `0a=0 0b=0 0c=1`; remap `--verify` clean (0 orphans, 0
+cross-collection duplicate filenames). Selectable globally; steer per-set via
+`style_hints.preferred_sources` / `avoid_sources`.
+
 ## Status / how to resume (updated 2026-05-28 — bake-off arc landed on main)
 
 **TL;DR.** The vision bake-off, text-GT labeling, the full production rescan, **and**
