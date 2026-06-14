@@ -549,9 +549,10 @@ def run_pipeline(source_dir, video_filter=None, dry_run=False, limit=None):
 
 # ─── Re-enrich flagged (hard-case re-rate) ──────────────────────────────────
 
-def _scene_is_flagged(scene, quality_by_index, quality_threshold):
-    """A scene is a re-enrichment candidate if its semantic failed validation/parse
-    OR its quality_score is below threshold (OR-combined, per plan)."""
+def _scene_is_flagged(scene, quality_by_index, quality_threshold, worklist_indices=None):
+    """A scene is a re-enrichment candidate if its semantic failed validation/parse,
+    its quality_score is below threshold, OR it appears in an audit worklist
+    (e.g. scripts/audit_semantics.py mood/motion contradictions). OR-combined."""
     semantic = scene.get("semantic")
     # Parse failure: no semantic, or only raw text was stored.
     if not semantic or scene.get("semantic_raw"):
@@ -564,17 +565,32 @@ def _scene_is_flagged(scene, quality_by_index, quality_threshold):
     q = quality_by_index.get(scene.get("scene_index"))
     if q is not None and q < quality_threshold:
         return True, f"quality {q:.2f}"
+    # Audit worklist (semantic contradiction).
+    if worklist_indices and scene.get("scene_index") in worklist_indices:
+        return True, "audit contradiction"
     return False, ""
 
 
 def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
-                         dry_run=False):
+                         dry_run=False, worklist_path=None, limit=None):
     """Re-run only flagged scenes through the active backend (ideally claude-cli on
-    the subscription) to fix up the cheap local model's hard cases."""
+    the subscription) to fix up the cheap local model's hard cases.
+
+    worklist_path: optional audit_semantics_worklist.json — its per-video
+    contradictory scene indices are flagged in addition to parse/quality
+    failures. limit: stop after this many scenes re-enriched (checkpointing)."""
     source = Path(source_dir)
     if not source.exists():
         print(f"\n  ERROR: Source not found: {source}\n  Mount the archive drive.\n")
         sys.exit(1)
+
+    worklist = {}
+    if worklist_path:
+        wl = json.loads(Path(worklist_path).read_text())
+        worklist = {k: set(v.get("contradictory_scenes", []))
+                    for k, v in wl.get("reenrich_worklist", {}).items()}
+        print(f"  Worklist: {sum(len(v) for v in worklist.values())} contradiction "
+              f"scenes across {len(worklist)} videos")
 
     if not dry_run:
         ok, msg = BACKEND.health_check()
@@ -606,16 +622,18 @@ def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
             for s in json.loads(qf.read_text()).get("scenes", []):
                 quality_by_index[s.get("scene_index")] = s.get("quality_score", 1.0)
 
+        name = ef.name.replace(".enriched.json", "")
+        wl_indices = worklist.get(name)
         flagged = []
         for scene in scene_list:
-            hit, reason = _scene_is_flagged(scene, quality_by_index, quality_threshold)
+            hit, reason = _scene_is_flagged(scene, quality_by_index,
+                                            quality_threshold, wl_indices)
             if hit:
                 flagged.append((scene, reason))
         if not flagged:
             continue
         total_flagged += len(flagged)
 
-        name = ef.name.replace(".enriched.json", "")
         print(f"\n  {name[:50]} — {len(flagged)} flagged")
         if dry_run:
             for scene, reason in flagged[:8]:
@@ -658,6 +676,11 @@ def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
             ef.write_text(json.dumps(data, indent=2, ensure_ascii=False))
             total_fixed += fixed
             print(f"      → wrote {fixed} updates to {ef.name}")
+
+        if limit and total_fixed >= limit:
+            print(f"\n  --limit {limit} reached; stopping (re-run to continue — "
+                  f"updated scenes won't re-flag).")
+            break
 
     print(f"\n  {'═' * 68}")
     print(f"  RE-ENRICH COMPLETE — {total_fixed}/{total_flagged} flagged scenes updated")
@@ -866,9 +889,13 @@ def main():
                         help="Vision backend (default: $GHOST_VISION_BACKEND or ollama)")
     parser.add_argument("--model", default=None, help="Override the backend's default model")
     parser.add_argument("--limit", type=int, default=None,
-                        help="Process at most N videos (handy for testing)")
+                        help="Process at most N videos (or, with --reenrich-flagged, "
+                             "N scenes — checkpointing for long worklist runs)")
     parser.add_argument("--reenrich-flagged", action="store_true",
                         help="Re-run only flagged scenes (failed validation/parse or low quality)")
+    parser.add_argument("--worklist", default=None,
+                        help="With --reenrich-flagged: also re-run the contradiction "
+                             "scenes in this audit_semantics worklist JSON")
     parser.add_argument("--only-new", action="store_true",
                         help="With --sampling-plan: skip videos whose enriched "
                              "file was already produced from a sampling plan")
@@ -906,7 +933,8 @@ def main():
         return
 
     if args.reenrich_flagged:
-        run_reenrich_flagged(args.source, args.quality_threshold, args.video, args.dry_run)
+        run_reenrich_flagged(args.source, args.quality_threshold, args.video,
+                             args.dry_run, args.worklist, args.limit)
         return
 
     if args.resume:
