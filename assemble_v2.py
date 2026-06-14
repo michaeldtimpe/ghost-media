@@ -52,37 +52,52 @@ import media_paths
 SOURCE_DIR = media_paths.FOOTAGE_ROOT
 SETS_DIR = media_paths.SETS_ROOT
 
+# Hungry-ghost music videos where on-screen text/captions are *intrinsic*
+# (not incidental titles the text-flagger trims) — comedy/lyric videos that
+# would clash with abstract DJ-set visuals. Substring-matched against
+# source_name; applied as avoid_sources to the existing abstract sets below.
+# The footage stays globally selectable; this only steers the 5 legacy sets.
+# Edit freely — text-flagging already excludes incidental on-screen text, so
+# this is purely an aesthetic "keep recognizable caption-MVs out" list.
+CAPTION_HEAVY_SOURCES = [
+    "Jazz Emu",            # D_H_A_R_N_T_Z_ — wall-to-wall robot-narration captions
+    "GO BANANAS",          # LITTLE BIG — on-screen text throughout
+    "HYPNODANCER",         # LITTLE BIG — on-screen text throughout
+    "Young Folks",         # Peter Bjorn And John — recurring caption gags
+    "Sexy and I Know It",  # LMFAO — recurring on-screen text
+]
+
 # Set definitions: analysis file → audio file → output name
 SET_CONFIGS = {
     "blue-sky-genesis-2025": {
         "analysis": "Mtimpe MIX1 02DEC MASTER MP3 V6.deep-analysis.json",
         "audio": SETS_DIR / "blue-sky-genesis-2025" / "Mtimpe MIX1 02DEC MASTER MP3  V6  .mp3",
         "output_name": "blue-sky-genesis-2025_music_video.mp4",
-        "style_hints": {},  # empty = no bias, pure audio-reactive
+        "style_hints": {"avoid_sources": CAPTION_HEAVY_SOURCES},
     },
     "boxing-day-2025": {
         "analysis": "Mtimpe MIX 30OCT MASTER WAV v5.deep-analysis.json",
         "audio": SETS_DIR / "boxing-day-2025" / "Mtimpe MIX 30OCT MASTER MP3 v5.mp3",
         "output_name": "boxing-day-2025_music_video.mp4",
-        "style_hints": {},
+        "style_hints": {"avoid_sources": CAPTION_HEAVY_SOURCES},
     },
     "cheerleader-exodus-2025": {
         "analysis": "Mtimpe MIX2 10DEC MASTER WAV v3.deep-analysis.json",
         "audio": SETS_DIR / "cheerleader-exodus-2025" / "Mtimpe MIX2 10DEC MASTER MP3 v3.mp3",
         "output_name": "cheerleader-exodus-2025_music_video.mp4",
-        "style_hints": {},
+        "style_hints": {"avoid_sources": CAPTION_HEAVY_SOURCES},
     },
     "waiting-to-begin-2024": {
         "analysis": "arche august dj set rev 4.deep-analysis.json",
         "audio": SETS_DIR / "waiting-to-begin-2024" / "arche august dj set rev 4.mp3",
         "output_name": "waiting-to-begin-2024_music_video.mp4",
-        "style_hints": {},
+        "style_hints": {"avoid_sources": CAPTION_HEAVY_SOURCES},
     },
     "will-call-2025": {
         "analysis": "Mtimpe MIX 09JUN MASTER WAV v4.deep-analysis.json",
         "audio": SETS_DIR / "will-call-2025" / "Mtimpe MIX 09JUN MASTER MP3 v4.mp3",
         "output_name": "will-call-2025_music_video.mp4",
-        "style_hints": {},
+        "style_hints": {"avoid_sources": CAPTION_HEAVY_SOURCES},
     },
 }
 
