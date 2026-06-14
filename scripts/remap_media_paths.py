@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -29,6 +30,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import media_paths as mp  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# A trailing -<hex> on an otherwise-identical stem is the analyzer's
+# hash-suffix duplicate class (lessons.md): X.webm and X-d557b.webm enter as
+# two separate "sources" with cosine-1.000 content. Filename-equality can't
+# see them (the stems differ), so check for it explicitly.
+HASH_SUFFIX_RE = re.compile(r"^(.*)-[0-9a-f]{5,6}$")
+
+
+def collect_hash_suffix_pairs():
+    """Stems of the form X and X-<hex> both present under FOOTAGE_ROOT."""
+    stems = {}
+    if not mp.FOOTAGE_ROOT.exists():
+        return []
+    for p in sorted(mp.FOOTAGE_ROOT.rglob("*")):
+        if "_staging" in p.parts:
+            continue
+        if p.is_file() and p.suffix.lower() in mp.VIDEO_EXTS:
+            stems[mp._nfc(p.stem)] = p
+    pairs = []
+    for stem, p in stems.items():
+        m = HASH_SUFFIX_RE.match(stem)
+        if m and m.group(1) in stems:
+            pairs.append((stems[m.group(1)], p))
+    return pairs
 
 
 def collect_duplicate_filenames():
@@ -89,6 +114,17 @@ def main() -> int:
     else:
         print("✓ no duplicate filenames across collections\n")
 
+    hash_pairs = collect_hash_suffix_pairs()
+    if hash_pairs:
+        print(f"⚠ HASH-SUFFIX DUPLICATE STEMS ({len(hash_pairs)}) — likely "
+              f"cosine-1.000 re-encodes entering as separate sources:")
+        for base, suffixed in hash_pairs:
+            print(f"    {base.name}  ↔  {suffixed.name}")
+        print("  archive the -<hex> variant offsite + remove its sidecars "
+              "(see lessons.md / PR #5).\n")
+    else:
+        print("✓ no hash-suffix duplicate stems\n")
+
     targets = (
         [(f, ["file", "path"]) for f in sorted(BASE_DIR.glob("*.analysis.json"))]
         + [(f, ["file", "path"]) for f in sorted((BASE_DIR / "enriched").glob("*.enriched.json"))]
@@ -112,7 +148,7 @@ def main() -> int:
         print(f"  ... +{len(orphans) - 20} more")
     if not args.apply and counts["remapped"]:
         print("\nrun with --apply to rewrite")
-    return 1 if (orphans or dups) else 0
+    return 1 if (orphans or dups or hash_pairs) else 0
 
 
 if __name__ == "__main__":
