@@ -565,9 +565,14 @@ def _scene_is_flagged(scene, quality_by_index, quality_threshold, worklist_indic
     q = quality_by_index.get(scene.get("scene_index"))
     if q is not None and q < quality_threshold:
         return True, f"quality {q:.2f}"
-    # Audit worklist (semantic contradiction).
+    # Audit worklist (semantic contradiction). Worklist membership is by
+    # scene_index and never clears, so skip scenes already re-rated by a
+    # stronger backend (claude-cli/anthropic-api provenance on the semantic)
+    # — otherwise a windowed run re-processes the same scenes forever.
     if worklist_indices and scene.get("scene_index") in worklist_indices:
-        return True, "audit contradiction"
+        prov = semantic.get("_provenance", {}) if isinstance(semantic, dict) else {}
+        if prov.get("backend") not in ("claude-cli", "anthropic-api"):
+            return True, "audit contradiction"
     return False, ""
 
 
@@ -662,13 +667,17 @@ def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
                 print(f"      scene {si}: ~ {error or 'unparsed'} ({elapsed:.1f}s)")
                 continue
             clean, _ = normalize_analysis(parsed)
+            # Stamp provenance on the semantic itself (not only frame_analyses):
+            # ~22% of scenes have no frame_analyses entry, and the worklist
+            # skip-if-already-done check reads semantic._provenance.
+            prov = {**BACKEND.provenance(), "elapsed": round(elapsed, 1)}
+            clean["_provenance"] = prov
             scene["semantic"] = clean
             scene.pop("semantic_raw", None)
             if si in fa_by_scene:
                 fa_by_scene[si]["analysis"] = clean
                 fa_by_scene[si].pop("analysis_raw", None)
-                fa_by_scene[si]["_provenance"] = {**BACKEND.provenance(),
-                                                  "elapsed": round(elapsed, 1)}
+                fa_by_scene[si]["_provenance"] = prov
             fixed += 1
             print(f"      scene {si}: ✓ re-enriched ({reason}, {elapsed:.1f}s)")
 
