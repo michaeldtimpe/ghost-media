@@ -299,6 +299,60 @@ Extracted via Demucs (vocal separation) + Whisper (transcription):
 
 The `phrase_lyrics` index maps phrase indices to keyword lists, consumed directly by the assembler's scoring function.
 
+### Semantic Audio (`.semantic.json`)
+
+Produced by `enrich_audio.py` — the audio twin of the vision enrichment pass.
+CLAP zero-shot tags (`laion/clap-htsat-unfused`) + a signal-feature digest per
+section, with an LLM composing descriptive phrases on top. Consumed by the
+assembler's scoring dim 13 (section semantics):
+
+```
+{
+  "schema_version": "1.0.0",
+  "set_name": "will-call-2025",
+  "models": { "clap": "laion/clap-htsat-unfused",
+              "llm": { "backend": "claude-cli", "model": "haiku" } },
+  "global": {
+    "bpm": 129.2, "key": "F# minor", "duration_sec": 4927.0,
+    "tags": { ...same shape as section tags, whole-set... },
+    "description": { "summary": "...", "phrases": [...] }
+  },
+  "sections": [
+    {
+      "index": 0, "start_sec": 12.4, "end_sec": 79.7,
+      "source": "phrase-group",          // or "tracklist" when tracks exist
+      "title": null,                      // tracklist title when available
+      "features": {
+        "bpm": 136.0, "key": "F minor",
+        "energy_pct": 82.6,               // set-relative percentile ranks
+        "bass_pct": 71.0, "brightness_pct": 60.5,
+        "percussive_ratio": 0.244, "onset_rate_per_sec": 0.68,
+        "energy_arc": "rising"            // rising|falling|steady|peak-and-release
+      },
+      "tags": {                           // CLAP zero-shot, [term, prob, cos]
+        "genre": [["dubstep", 0.18, 0.65], ...],
+        "mood": [...], "instrumentation": [...],
+        "vocals": [...], "texture": [...]
+      },
+      "lyrics": { "keywords": [...], "line": "..." },   // when .lyrics.json exists
+      "description": {                    // LLM-composed (null on --skip-llm)
+        "phrases": ["Dark F-minor foundation under heavy bass", ...],
+        "summary": "...",
+        "visual_keywords": ["dark", "cold", "industrial", ...],
+        "energy": "high", "mood": ["dark", "ominous"]
+      }
+    }
+  ]
+}
+```
+
+Sections come from the tracklist when the deep analysis has `tracks`, else from
+4-bar phrase groups targeting ~60 s. The assembler (scoring dim 13) maps each
+phrase to its enclosing section by midpoint, CLIP-text-encodes the section's
+`visual_keywords` once, and calibrates the similarity against the corpus-wide
+cos distribution — giving instrumental passages the semantic steering that the
+lyric-only dim 11 can't provide.
+
 ## Assembly Pipeline Detail
 
 ### Scene Database Construction
@@ -372,6 +426,7 @@ match terms; the rest are additive bonuses/penalties (see `score_scene` in
 | 10 | Loopability | +0.15 | Prefer loopable clips for phrases longer than the scene |
 | 11 | CLIP similarity | ×0.6 | Lyric-text embedding ↔ scene visual embedding (cosine) |
 | 12 | Scene quality | ×3.0 | **Non-destructive** soft penalty `-(1-quality_score)*3` — a dead scene (black/blown/frozen) sinks ~3 pts but is never excluded outright |
+| 13 | **Section semantics** | ×0.4 | `.semantic.json` section `visual_keywords` (CLIP text embedding) ↔ scene visual embedding. The cos is min-max normalized into [0,1] against the section's corpus-wide p5/p95 before weighting — raw CLIP cos spans too narrow a band on an all-abstract corpus to discriminate (verified: unnormalized it moved selection alignment by +0.0001; calibrated, +3.0% with diversity unchanged). Gives instrumental passages the semantic steering dim 11 only provides where vocals exist. Source: `enrich_audio.py`. |
 
 **`bpm_confidence`** is the per-phrase average of `bpm_timeline.confidence`
 divided by the set's 95th-percentile (avoids hardcoded-scale drift across

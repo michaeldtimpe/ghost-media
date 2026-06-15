@@ -18,6 +18,8 @@ Generates algorithmic music videos for DJ sets. Source video clips are analyzed 
 
 5. **`extract_lyrics.py`** — Demucs vocal separation + Whisper transcription. Produces `.lyrics.json` with timestamped lyric segments and keyword indices mapped to phrases.
 
+5b. **`enrich_audio.py`** — the audio twin of `enrich_analyses.py`: CLAP zero-shot tags (genre/mood/instrumentation/vocals/texture) + a signal-feature digest per section, then an LLM composes descriptive phrases and visual keywords. Produces `.semantic.json`; consumed by the assembler's scoring dim 13 (gives instrumental passages the semantic steering the lyric-only dim 11 can't). Sections follow the tracklist when present, else ~60 s phrase groups.
+
 6. **`bench/` + `bench/TESTPLAN.md`** — the vision-engine bake-off harness (CLI `bench_run.py`). Scores VLMs (Ollama / MLX / Claude) on the footage to pick the production enrichment engine; the winner feeds `enrich_analyses.py --sampling-plan`. Read `bench/TESTPLAN.md` first — it has the lineup, metrics, and a **status/resume** section. Bake-off is **complete**; production = `mlx-qwen7b` + `mlx-internvl` parse-fail fallback (V1 cascade), full corpus rescanned 2026-05-28.
 
 7. **`audio_field_audit.md`** — the per-field contract for `.deep-analysis.json` (schema 2.2.0): who computes each field, who reads it, byte cost, recommendation. Authoritative reference for what stays in the JSON. See also `lessons.md` "# Audio side" for the underlying rationale.
@@ -37,6 +39,14 @@ Generates algorithmic music videos for DJ sets. Source video clips are analyzed 
 3. Demucs separates vocals (~5-15 min per hour of audio), Whisper transcribes
 4. Output: `sets/<name>.lyrics.json` — automatically loaded by assembler on next run
 5. Use `--whisper-model medium` or `large` for better accuracy at cost of speed
+
+### Semantic audio enrichment for a set
+
+1. Needs torch + transformers (in `.venv`) and a text backend — Ollama, or `--backend claude-cli` (subscription; `env -u ANTHROPIC_API_KEY` to avoid metered billing)
+2. Run `python3 enrich_audio.py --set <name>` (or `--all`, `--status`)
+3. CLAP tagging is fast (~seconds/set); the LLM phrase pass is the slow part (one call per ~60 s section, ~23 min/set on claude-cli haiku). `--skip-llm` gives a tags-only pass with no LLM dependency
+4. Output: `sets/<name>.semantic.json` — auto-loaded by the assembler (scoring dim 13). Run lyrics extraction first if you want lyric keywords folded into the prompts
+5. Do **not** swap the CLAP checkpoint to `laion/larger_clap_music` — its HF conversion is broken (see lessons.md "# Audio side")
 
 ### Adding source videos
 
@@ -165,11 +175,11 @@ Each set in `SET_CONFIGS` can have a `style_hints` dict:
 
 ## Dependencies
 
-Requires: Python 3.10+, numpy, librosa, scipy, FFmpeg, Ollama (for enrichment/text scanning only), demucs + openai-whisper (for lyrics extraction only), open_clip + torch (for CLIP embeddings and scene search).
+Requires: Python 3.10+ (<3.14 — numba/llvmlite), numpy, librosa, scipy, FFmpeg, Ollama (for enrichment/text scanning only), demucs + openai-whisper (for lyrics extraction only), open_clip + torch (for CLIP embeddings and scene search), transformers (for CLAP audio tagging in `enrich_audio.py`).
 
 The `claude-cli` vision backend needs the Claude Code CLI (uses your subscription); the `anthropic-api` backend needs `pip install anthropic` + `ANTHROPIC_API_KEY` (metered, optional).
 
-The assembler (`assemble_v2.py`) only needs numpy and FFmpeg — it reads pre-computed JSON files. All sidecars are optional and degrade gracefully: no `.lyrics.json` skips lyric matching, no `.clip_embeddings.json` skips CLIP similarity, no `.quality.json` leaves every scene at `quality_score = 1.0` (no penalty).
+The assembler (`assemble_v2.py`) only needs numpy and FFmpeg — it reads pre-computed JSON files. All sidecars are optional and degrade gracefully: no `.lyrics.json` skips lyric matching, no `.semantic.json` skips section-semantic matching (dim 13), no `.clip_embeddings.json` skips CLIP similarity (both 11 and 13), no `.quality.json` leaves every scene at `quality_score = 1.0` (no penalty).
 
 ## Things to Watch Out For
 
