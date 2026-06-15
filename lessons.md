@@ -415,6 +415,24 @@ The audio rigor uplift (Phases 0–6) closed the obvious gaps between what
 contract is documented in [`audio_field_audit.md`](audio_field_audit.md); the
 lessons below are the operational tax we paid getting there.
 
+## Validate a zero-shot model with a discrimination probe before trusting tags
+
+`laion/larger_clap_music` — the music-specialized CLAP checkpoint, the obvious
+pick for `enrich_audio.py` — is broken in its HuggingFace conversion: every
+text embeds to cos ≈ 0.999 of every other text, and audio–text cosines sit at
+≈ 0 for all pairs. Weights load with zero missing/unexpected keys, so nothing
+warns; the tag output *looks* plausible (top-k always returns something) while
+being uniform noise. Verified on transformers 4.57 **and** 5.9 — it's the
+conversion, not the library version. `laion/clap-htsat-unfused` discriminates
+correctly (a sine tone scores "a pure sine tone beep" at 0.67 vs 0.04 for
+"techno music") and is what `enrich_audio.py` ships with.
+
+**Lesson:** a zero-shot tagger that ranks a fixed vocabulary always produces
+confident-looking output, even fed garbage embeddings. Before trusting any new
+checkpoint, run a 30-second synthetic probe — white noise vs a sine tone
+against matching text labels — and check the text–text cosine matrix isn't
+degenerate. Top-k order alone tells you nothing.
+
 ## Persisted signals should justify their storage cost even when unwired
 
 Pre-uplift, `.deep-analysis.json` carried 14 top-level keys, several with
@@ -569,6 +587,30 @@ results, almost certainly worse.
 with frozen seed; ratchet up only after observing the distribution shift.
 
 # Selection side
+
+## Raw CLIP cosines don't discriminate on a same-genre corpus — calibrate them
+
+Wiring `.semantic.json` visual keywords into scoring (dim 13) as a plain
+`max(0, cos) * 0.4` bonus churned 98% of selections (pure MMR path-cascade
+noise from tiny uniform deltas) while moving actual semantic alignment by
++0.0001 — the dim was structurally present and functionally absent. Cause: on
+a corpus that is *all* abstract electronic visuals, text→image cos for any
+mood/texture phrase spans a band of a few hundredths, so a sub-1.0 weight on
+the raw value can't outvote even the smallest motion/brightness differences.
+
+The fix follows the codebase's own convention (bpm-confidence divisor,
+onset/motion percentile ranks): per section, compute cos against the entire
+clip-embedding corpus once, take p5/p95, and min-max the per-clip cos into
+[0,1] before weighting. Same frozen-seed A/B: alignment +3.0%, distinct
+sources unchanged, mean score flat. Conservative landing per the
+`PhraseFeatures`-weights rule, now with an effect to ratchet.
+
+Two corollaries. (1) Selection churn is not evidence of effect — MMR +
+variety windows amplify any perturbation into widespread reshuffling, so
+measure the dimension's *target* quantity (here: mean cos of chosen clips),
+not how much the output changed. (2) Dim 11 (lyric→CLIP, weight 0.6,
+uncalibrated) almost certainly shares this narrow-band weakness — candidate
+for the same p5/p95 treatment behind its own A/B.
 
 ## Metadata diversity is not perceptual diversity
 

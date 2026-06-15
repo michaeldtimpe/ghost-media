@@ -581,6 +581,16 @@ class PhraseFeatures:
     # lyrics_keywords mapped onto the canonical tag vocabulary (run_set 3c).
     canonical_keywords: list = field(default_factory=list)
     clip_text_embedding: np.ndarray = None  # CLIP text encoding of lyrics
+    # CLIP text encoding of the enclosing .semantic.json section's
+    # visual_keywords (enrich_audio.py) — semantic steering for instrumental
+    # passages, where the lyric-only clip_text_embedding (dim 11) never fires.
+    semantic_text_embedding: np.ndarray = None
+    # Corpus-relative calibration: p5/p95 of this section embedding's cos
+    # against all clip embeddings. Raw CLIP cos sits in a narrow band on an
+    # all-abstract corpus; without this the dim can't discriminate (same
+    # rationale as the per-set bpm-confidence divisor).
+    semantic_sim_lo: float = 0.0
+    semantic_sim_hi: float = 0.0
 
 
 def _schema_tuple(data):
@@ -950,6 +960,25 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
     #     A dead scene (black/blown/frozen) sinks ~3 pts but stays selectable.
     quality_penalty = -(1.0 - clip.quality_score) * QUALITY_PENALTY_WEIGHT
 
+    # 13. Section-semantic similarity (audio-derived visual keywords → visual
+    #     embedding). Same mechanism as dim 11 but sourced from the enclosing
+    #     .semantic.json section, so instrumental passages get semantic
+    #     steering too (dim 11 only fires where vocals exist). The cos is
+    #     min-max normalized into [0,1] against the section's corpus-wide
+    #     p5/p95 — raw cos spread is too narrow to discriminate on an
+    #     all-abstract corpus (unnormalized it moved selection alignment by
+    #     +0.0001; calibrated, +3.0%). Lands at 0.4 per the convention that
+    #     new components enter at <0.5 weight, ratcheting only after a
+    #     frozen-seed run shows the distribution shift.
+    semantic_sim_bonus = 0.0
+    if (phrase.semantic_text_embedding is not None
+            and clip.clip_embedding is not None
+            and phrase.semantic_sim_hi > phrase.semantic_sim_lo):
+        sim = float(np.dot(phrase.semantic_text_embedding, clip.clip_embedding))
+        norm = ((sim - phrase.semantic_sim_lo)
+                / (phrase.semantic_sim_hi - phrase.semantic_sim_lo))
+        semantic_sim_bonus = min(max(norm, 0.0), 1.0) * 0.4
+
     # Soft de-emphasis of duration matching when the per-phrase BPM detection
     # is unconfident (breakdowns, intros/outros, transitions). At zero
     # confidence dur_match retains 60% of its weight — mild, not "near-disable."
@@ -969,6 +998,7 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
         lyrics_bonus +
         loop_bonus +
         clip_sim_bonus +
+        semantic_sim_bonus +
         quality_penalty
     )
 
@@ -1921,10 +1951,17 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
     else:
         print(f"    No lyrics file found (run extract_lyrics.py --set {set_name} to add)")
 
-    # ── 3c. Encode lyrics with CLIP for semantic matching ──
+    # ── 3c. Encode lyrics + section semantics with CLIP ──
     any_has_clip_emb = any(c.clip_embedding is not None for c in scenes)  # was: scene_pool (undefined in this scope)
     phrases_with_lyrics = [pf for pf in phrase_features if pf.lyrics_keywords]
-    if any_has_clip_emb and phrases_with_lyrics:
+    # Section-level visual keywords from enrich_audio.py (dim 13). Loaded here
+    # so a set with NO lyrics but WITH a .semantic.json still encodes.
+    semantic_path = BASE_DIR / "sets" / f"{set_name}.semantic.json"
+    semantic_sections = (json.loads(semantic_path.read_text()).get("sections", [])
+                         if semantic_path.exists() else [])
+    if not semantic_sections:
+        print(f"    No semantic file found (run enrich_audio.py --set {set_name} to add)")
+    if any_has_clip_emb and (phrases_with_lyrics or semantic_sections):
         try:
             import open_clip
             import torch
@@ -1934,16 +1971,19 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
             clip_model.eval()
             tokenizer = open_clip.get_tokenizer("ViT-B-32")
 
-            encoded = 0
-            for pf in phrases_with_lyrics:
-                text = " ".join(pf.lyrics_keywords[:20])
-                tokens = tokenizer([text]).to(device)
+            def _encode_text(words):
+                tokens = tokenizer([" ".join(words)]).to(device)
                 with torch.no_grad():
                     feat = clip_model.encode_text(tokens)
                     feat = feat / feat.norm(dim=-1, keepdim=True)
-                pf.clip_text_embedding = feat.cpu().numpy()[0].astype(np.float32)
+                return feat.cpu().numpy()[0].astype(np.float32)
+
+            encoded = 0
+            for pf in phrases_with_lyrics:
+                pf.clip_text_embedding = _encode_text(pf.lyrics_keywords[:20])
                 encoded += 1
-            print(f"    CLIP text embeddings: {encoded} phrases encoded")
+            if encoded:
+                print(f"    CLIP text embeddings: {encoded} phrases encoded")
 
             # Map lyric keywords onto the canonical tag vocabulary so the
             # lyric↔tag dimension matches synonyms ("ocean" ↔ "sea"), not
@@ -1976,6 +2016,41 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
                 print(f"    Canonical lyric keywords: {mapped_phrases} phrases mapped "
                       f"({len(selective)}/{len(vocab['terms'])} selective terms, "
                       f"DF ≤ {CANON_MATCH_MAX_DF:.0%})")
+
+            # Section semantics (dim 13): each .semantic.json section's
+            # visual_keywords are CLIP-encoded once and assigned to every
+            # phrase whose midpoint falls in the section. The section→corpus
+            # cos p5/p95 calibrates the scoring dim (raw cos is too narrow to
+            # discriminate — see score_scene dim 13 and lessons.md).
+            if semantic_sections:
+                corpus = np.stack([c.clip_embedding for c in scenes
+                                   if c.clip_embedding is not None])
+                sec_emb = {}    # section index → (embedding, lo, hi)
+                applied = 0
+                for pf in phrase_features:
+                    mid = (pf.start_sec + pf.end_sec) / 2
+                    sec = next((s for s in semantic_sections
+                                if s["start_sec"] <= mid < s["end_sec"]), None)
+                    if sec is None:
+                        continue
+                    kws = (sec.get("description") or {}).get("visual_keywords") or []
+                    if not kws:  # tags-only enrich_audio run: fall back to CLAP terms
+                        tags = sec.get("tags", {})
+                        kws = ([t for t, *_ in tags.get("mood", [])[:3]]
+                               + [t for t, *_ in tags.get("texture", [])[:2]])
+                    if not kws:
+                        continue
+                    idx = sec["index"]
+                    if idx not in sec_emb:
+                        emb = _encode_text(kws[:12])
+                        sims = corpus @ emb
+                        sec_emb[idx] = (emb, float(np.percentile(sims, 5)),
+                                        float(np.percentile(sims, 95)))
+                    (pf.semantic_text_embedding, pf.semantic_sim_lo,
+                     pf.semantic_sim_hi) = sec_emb[idx]
+                    applied += 1
+                print(f"    Section semantics: {applied}/{len(phrase_features)} "
+                      f"phrases ({len(sec_emb)} sections encoded)")
 
             del clip_model  # free memory
         except ImportError:

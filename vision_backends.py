@@ -20,6 +20,14 @@ vision_schema.normalize_analysis). `error` is None on success, else a short
 string. Cloud backends also defensively detect refusal/permission text returned
 *as a successful response* (the blog's "CLI returns refusals as success" gotcha)
 and surface it as an error so retry / --reenrich-flagged logic can react.
+
+Backends also expose a text-only variant (same return contract, no image):
+
+    text, elapsed, error = backend.analyze_text(prompt)
+
+used by enrich_audio.py to compose descriptive phrases from audio features.
+Not implemented on the mlx backend (its default model is a VLM) — use ollama
+or claude-cli for text composition.
 """
 
 import base64
@@ -83,6 +91,12 @@ class VisionBackend:
         """Return (text, elapsed_sec, error_or_None)."""
         raise NotImplementedError
 
+    def analyze_text(self, prompt):
+        """Text-only call. Return (text, elapsed_sec, error_or_None)."""
+        raise NotImplementedError(
+            f"backend '{self.name}' does not support text-only calls — "
+            "use ollama, claude-cli, or anthropic-api")
+
 
 # ─── Ollama (local, default) ─────────────────────────────────────────────────
 
@@ -118,6 +132,25 @@ class OllamaBackend(VisionBackend):
                 # + prompt + 1024 output (~3.9k). Without this Ollama allocates the
                 # model's full 128k window (a ~52 GB KV cache for qwen2.5vl:7b),
                 # ballooning memory and inference time. 8192 leaves 2x headroom.
+                "options": {"num_predict": 1024, "num_ctx": 8192},
+            }).encode()
+            req = urllib.request.Request(
+                f"{self.api}/api/generate", data=payload,
+                headers={"Content-Type": "application/json"}, method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                data = json.loads(resp.read())
+            return data.get("response", "").strip(), time.time() - start, None
+        except Exception as e:
+            return None, time.time() - start, str(e)[:200]
+
+    def analyze_text(self, prompt):
+        start = time.time()
+        try:
+            payload = json.dumps({
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
                 "options": {"num_predict": 1024, "num_ctx": 8192},
             }).encode()
             req = urllib.request.Request(
@@ -204,6 +237,39 @@ class ClaudeCLIBackend(VisionBackend):
             return None, elapsed, f"refusal/permission: {text[:120]}"
         return text, elapsed, None
 
+    def analyze_text(self, prompt):
+        start = time.time()
+        cmd = [
+            self.binary, "-p", prompt,
+            "--allowedTools", "",  # pure text composition: no tools needed
+            "--output-format", "json",
+            "--model", self.model,
+        ]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except Exception as e:
+            return None, time.time() - start, f"cli error ({str(e)[:120]})"
+        elapsed = time.time() - start
+
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout or "non-zero exit").strip()
+            return None, elapsed, f"cli exit {r.returncode}: {err[:160]}"
+
+        out = (r.stdout or "").strip()
+        text = out
+        try:
+            env = json.loads(out)
+            if isinstance(env, dict) and "result" in env:
+                text = (env.get("result") or "").strip()
+        except json.JSONDecodeError:
+            pass
+
+        if not text:
+            return None, elapsed, "empty response"
+        if _looks_like_refusal(text):
+            return None, elapsed, f"refusal/permission: {text[:120]}"
+        return text, elapsed, None
+
 
 # ─── Anthropic API (opt-in, metered) ─────────────────────────────────────────
 
@@ -260,6 +326,25 @@ class AnthropicAPIBackend(VisionBackend):
                         },
                     ],
                 }],
+            )
+            elapsed = time.time() - start
+            text = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text").strip()
+            if not text:
+                return None, elapsed, "empty response"
+            if _looks_like_refusal(text):
+                return None, elapsed, f"refusal: {text[:120]}"
+            return text, elapsed, None
+        except Exception as e:
+            return None, time.time() - start, str(e)[:200]
+
+    def analyze_text(self, prompt):
+        start = time.time()
+        try:
+            client = self._get_client()
+            msg = client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
             )
             elapsed = time.time() - start
             text = "".join(b.text for b in msg.content if getattr(b, "type", None) == "text").strip()
