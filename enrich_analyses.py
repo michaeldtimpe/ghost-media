@@ -205,18 +205,33 @@ def plan_frame_samples(analysis_data):
 # ─── Frame Extraction ──────────────────────────────────────────────────────
 
 def extract_frame(video_path, time_sec, output_path):
-    """Extract a single frame from a video."""
+    """Extract a single frame from a video.
+
+    Seeks that land within a few frames of EOF (e.g. the midpoint of a
+    sub-0.1s tail scene flush against the end of the video) return "no
+    packets" — ffmpeg writes nothing. Rather than drop the scene, back off
+    toward the start in increasing steps and grab the nearest decodable
+    frame; for a degenerate tail shot a frame ~0.5s earlier is the same
+    visual content. The first attempt is the exact timestamp, so non-EOF
+    callers are unaffected.
+    """
     if output_path.exists() and output_path.stat().st_size > 0:
         return True
-    try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(time_sec), "-i", str(video_path),
-             "-frames:v", "1", "-q:v", "2", str(output_path)],
-            capture_output=True, timeout=30
-        )
-        return output_path.exists() and output_path.stat().st_size > 0
-    except Exception:
-        return False
+    for back in (0.0, 0.5, 1.0, 2.0):
+        t = max(0.0, time_sec - back)
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", str(t), "-i", str(video_path),
+                 "-frames:v", "1", "-q:v", "2", str(output_path)],
+                capture_output=True, timeout=30
+            )
+        except Exception:
+            return False
+        if output_path.exists() and output_path.stat().st_size > 0:
+            return True
+        if time_sec - back <= 0.0:
+            break
+    return False
 
 
 # ─── Vision (backend-agnostic) ──────────────────────────────────────────────
