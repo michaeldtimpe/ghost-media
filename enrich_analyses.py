@@ -52,6 +52,13 @@ ENRICHMENT_DIR = ANALYSIS_DIR / "enriched"
 STATE_FILE = ENRICHMENT_DIR / "state.json"
 FRAMES_DIR = ENRICHMENT_DIR / "frames"
 
+# Re-enrich flushes the enriched file every this many successes. A file with
+# 1000+ flagged scenes (e.g. a multi-hour visual) would otherwise hold the
+# whole pass in memory and persist nothing until it completed — a kill or a
+# mid-pass session cap then loses hours of work, and the worklist's
+# provenance-skip can't self-clear incrementally across windows.
+WRITE_EVERY = 25
+
 # Sampling: ~1 frame per SAMPLE_INTERVAL seconds, bounded by min/max
 SAMPLE_INTERVAL_SEC = 30
 MIN_FRAMES_PER_VIDEO = 4
@@ -670,6 +677,8 @@ def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
         frame_dir.mkdir(parents=True, exist_ok=True)
 
         fixed = 0
+        since_write = 0
+        hit_limit = False
         for scene, reason in flagged:
             si = scene.get("scene_index")
             mid = (scene.get("start_sec", 0) + scene.get("end_sec", 0)) / 2
@@ -694,14 +703,27 @@ def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,
                 fa_by_scene[si].pop("analysis_raw", None)
                 fa_by_scene[si]["_provenance"] = prov
             fixed += 1
+            since_write += 1
             print(f"      scene {si}: ✓ re-enriched ({reason}, {elapsed:.1f}s)")
+            # Checkpoint mid-file so progress survives a kill/cap and the
+            # worklist's provenance-skip self-clears incrementally.
+            if since_write >= WRITE_EVERY:
+                ef.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+                since_write = 0
+            # Scene-granular limit: stop the instant the target is reached so a
+            # probe is cheap (1 scene) and a capped window can't churn through
+            # the rest of a huge file.
+            if limit and total_fixed + fixed >= limit:
+                hit_limit = True
+                break
 
-        if fixed:
+        if since_write:
             ef.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+        if fixed:
             total_fixed += fixed
             print(f"      → wrote {fixed} updates to {ef.name}")
 
-        if limit and total_fixed >= limit:
+        if hit_limit or (limit and total_fixed >= limit):
             print(f"\n  --limit {limit} reached; stopping (re-run to continue — "
                   f"updated scenes won't re-flag).")
             break
