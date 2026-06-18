@@ -353,6 +353,23 @@ def load_text_flags():
     return text_seconds
 
 
+def load_content_safety_flags():
+    """Set of (source_name, scene_index) to hard-exclude (scripts/flag_content_safety.py).
+
+    Conservative auto-exclude: scenes whose VLM description names concrete
+    gore/weapon/sexual/disturbing content are dropped from the pool entirely.
+    """
+    path = BASE_DIR / "content_safety_flags.json"
+    flags = set()
+    if not path.exists():
+        return flags
+    data = json.loads(path.read_text())
+    for src, idxs in data.get("flagged", {}).items():
+        for si in idxs:
+            flags.add((src, si))
+    return flags
+
+
 # Sub-scene salvage: instead of discarding a whole scene because one stretch
 # has text, subtract the flagged seconds (padded by the flag resolution) and
 # keep the clean sub-ranges. Flags are per-second, so the data already exists.
@@ -419,6 +436,9 @@ def build_scene_database(text_seconds=None, salvage=True):
     scenes = []
     n_excluded = n_salvaged_scenes = n_subclips = 0
     recovered_sec = 0.0
+    safety_flags = load_content_safety_flags()   # (source_name, scene_index) hard-excludes
+    n_safety_excluded = 0
+    n_caption_excluded = 0
     files = sorted(ENRICHED_DIR.iterdir())
     files = [f for f in files if f.name.endswith('.enriched.json')]
 
@@ -428,6 +448,13 @@ def build_scene_database(text_seconds=None, salvage=True):
         source_path = find_source_video(file_info)
         source_name = file_info.get("name", f.stem)
         src_stem = f.name.replace(".enriched.json", "")  # sanitized; matches sidecar filenames
+
+        # Hard-exclude caption-heavy sources entirely (their burned-in text
+        # leaks past per-second flagging). Previously a soft avoid_sources
+        # penalty; now removed from the pool outright.
+        if any(c.lower() in source_name.lower() for c in CAPTION_HEAVY_SOURCES):
+            n_caption_excluded += 1
+            continue
 
         # Get timelines
         motion_tl = data.get("motion", {}).get("timeline", [])
@@ -466,6 +493,11 @@ def build_scene_database(text_seconds=None, salvage=True):
             start = s.get("start_sec", 0)
             end = s.get("end_sec", start)
             si = s.get("scene_index", 0)
+
+            # Content-safety hard exclude (conservative auto-exclude).
+            if (source_name, si) in safety_flags:
+                n_safety_excluded += 1
+                continue
 
             # Semantic (from enrichment or scene-level)
             semantic = s.get("semantic", {}) or fa_by_scene.get(si, {})
@@ -587,6 +619,12 @@ def build_scene_database(text_seconds=None, salvage=True):
     elif n_excluded:
         print(f"    Text filter: {n_excluded} scenes excluded"
               f"{' (salvage disabled)' if not salvage else ''}")
+    if n_safety_excluded:
+        print(f"    Content-safety: {n_safety_excluded} scenes hard-excluded "
+              f"(disturbing/weapon/sexual)")
+    if n_caption_excluded:
+        print(f"    Caption sources hard-excluded: {n_caption_excluded} files "
+              f"({', '.join(CAPTION_HEAVY_SOURCES)})")
 
     return scenes
 
