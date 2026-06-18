@@ -153,6 +153,7 @@ POOL_SIZE_FLOOR = 6        # min distinct sources/song; below this, borrow the s
 AFFINITY_FLOOR = 0.15      # a source must clear this affinity to be assigned exclusively
 IMPURITY_EXTRA = 2         # +N next-best sources per song ("seasoning": ~80/20 identity)
 SHARED_FALLBACK_MIN_SONGS = 2  # <this many songs ⇒ skip partition (global pool = current behavior)
+ADJACENT_DISTINCT_WEIGHT = 0.5  # steer each song's pool AWAY from the previous song's look
 
 # ─── Longer Clips / Holds (Phase 5) ───────────────────────────────────────
 NATIVE_FIT_WEIGHT = 0.9    # selection nudge toward phrase-length scenes (single-play)
@@ -1464,18 +1465,37 @@ def assign_song_source_pools(phrase_features, scenes, style_hints=None,
     # every song has ~target exclusive sources (≥ POOL_SIZE_FLOOR when the corpus
     # allows). target gives a little headroom for ~80/20 primary/secondary look.
     target = max(POOL_SIZE_FLOOR, len(all_sources) // len(song_ids) + IMPURITY_EXTRA)
-    ranked = {sid: [s for _, s in sorted(((aff[sid][s], s) for s in all_sources),
-                                         key=lambda t: t[0], reverse=True)]
-              for sid in song_ids}
     exclusive = {sid: set() for sid in song_ids}
     assigned = set()
+
+    def _pool_centroid(srcs):
+        cens = [profiles[s]["centroid"] for s in srcs if profiles[s]["centroid"] is not None]
+        if not cens:
+            return None
+        c = np.mean(np.array(cens, dtype=np.float64), axis=0)
+        n = np.linalg.norm(c)
+        return c / n if n > 0 else None
+
+    # Round-robin (fair: every song gets one source per round so none starves),
+    # but each song is steered AWAY from looking like the PREVIOUS song in the
+    # set (ADJACENT_DISTINCT_WEIGHT) so neighbouring songs are visually distinct
+    # instead of one look persisting across several songs.
     for _ in range(target):
-        for sid in song_ids:
-            for src in ranked[sid]:
-                if src not in assigned and aff[sid][src] >= AFFINITY_FLOOR:
-                    exclusive[sid].add(src)
-                    assigned.add(src)
-                    break
+        for k, sid in enumerate(song_ids):
+            prev_cen = _pool_centroid(exclusive[song_ids[k - 1]]) if k > 0 else None
+            best, best_a = None, -1e9
+            for src in all_sources:
+                if src in assigned or aff[sid][src] < AFFINITY_FLOOR:
+                    continue
+                a = aff[sid][src]
+                if prev_cen is not None and profiles[src]["centroid"] is not None:
+                    a -= ADJACENT_DISTINCT_WEIGHT * max(
+                        0.0, float(np.dot(prev_cen, profiles[src]["centroid"])))
+                if a > best_a:
+                    best_a, best = a, src
+            if best is not None:
+                exclusive[sid].add(best)
+                assigned.add(best)
 
     shared = [s for s in all_sources if s not in assigned]
     pools = {}
