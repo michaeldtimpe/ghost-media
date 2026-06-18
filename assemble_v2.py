@@ -38,6 +38,7 @@ import time
 import argparse
 from pathlib import Path
 from dataclasses import dataclass, field
+from collections import Counter
 
 import numpy as np
 
@@ -141,6 +142,17 @@ SCENE_REUSE_PENALTY = 1.0  # per-scene analogue of REUSE_PENALTY — re-showing 
                            # exact scene is far more visible than re-visiting a source
 MAX_SOURCE_USAGE_MULT = 2.0  # cap any source at (total_phrases / n_sources) * this
 QUALITY_PENALTY_WEIGHT = 3.0  # soft penalty for dead scenes: -(1-quality)*this (see flag_quality.py)
+
+# ─── Per-Song Source Pools (Phase 3) ──────────────────────────────────────
+# Each detected song gets a MOSTLY-EXCLUSIVE set of source videos (assigned by
+# song↔source affinity) so songs look distinct and internally cohesive. Looser
+# within-song reuse is fine because cross-song variety is guaranteed by the
+# disjoint pools + per-song state reset.
+MAX_SOURCE_USAGE_MULT_SONG = 3.0  # per-song source cap multiplier (looser than global 2.0)
+POOL_SIZE_FLOOR = 6        # min distinct sources/song; below this, borrow the shared pool
+AFFINITY_FLOOR = 0.15      # a source must clear this affinity to be assigned exclusively
+IMPURITY_EXTRA = 2         # +N next-best sources per song ("seasoning": ~80/20 identity)
+SHARED_FALLBACK_MIN_SONGS = 2  # <this many songs ⇒ skip partition (global pool = current behavior)
 
 # ─── Frame-Exact Rendering ────────────────────────────────────────────────
 # Every clip is planned in *frames* anchored to the audio timeline: clip i
@@ -1281,6 +1293,108 @@ def _snap_to_beat(t, beat_grid):
     return best[0]
 
 
+_MOOD_ENERGY_VAL = {"calm": 0.15, "building": 0.5, "moderate": 0.5,
+                    "intense": 0.85, "chaotic": 0.95}
+
+
+def _source_profiles(scenes):
+    """Per source video: mean CLIP centroid, modal mood_energy, scene count."""
+    by_src = {}
+    for s in scenes:
+        by_src.setdefault(s.source_name, []).append(s)
+    profiles = {}
+    for name, clips in by_src.items():
+        embs = [c.clip_embedding for c in clips if c.clip_embedding is not None]
+        if embs:
+            cen = np.mean(np.array(embs, dtype=np.float64), axis=0)
+            n = np.linalg.norm(cen)
+            cen = cen / n if n > 0 else None
+        else:
+            cen = None
+        moods = [c.mood_energy for c in clips if c.mood_energy]
+        modal_mood = Counter(moods).most_common(1)[0][0] if moods else ""
+        profiles[name] = {"centroid": cen, "mood": modal_mood, "n": len(clips)}
+    return profiles
+
+
+def _song_target(phrases):
+    """Per-song target: mean energy + mean section-semantic embedding (CLIP)."""
+    energy = float(np.mean([p.energy for p in phrases])) if phrases else 0.5
+    embs = [p.semantic_text_embedding for p in phrases
+            if getattr(p, "semantic_text_embedding", None) is not None]
+    if embs:
+        t = np.mean(np.array(embs, dtype=np.float64), axis=0)
+        n = np.linalg.norm(t)
+        emb = t / n if n > 0 else None
+    else:
+        emb = None
+    return {"energy": energy, "emb": emb}
+
+
+def _affinity(song, src_profile):
+    """Song↔source match in [0,1]: theme embedding + mood-energy alignment."""
+    if src_profile["centroid"] is not None and song["emb"] is not None:
+        emb_sim = max(0.0, float(np.dot(song["emb"], src_profile["centroid"])))
+    else:
+        emb_sim = 0.5  # neutral when an embedding is missing
+    mood_val = _MOOD_ENERGY_VAL.get(src_profile["mood"], 0.5)
+    mood_match = 1.0 - abs(song["energy"] - mood_val)
+    return 0.6 * emb_sim + 0.4 * mood_match
+
+
+def assign_song_source_pools(phrase_features, scenes, style_hints=None):
+    """Greedy mostly-exclusive source→song assignment with shared fallback.
+
+    Returns {track_index: set(source_names)} or None when there's effectively
+    one song (degenerate → caller uses the full global pool = current behavior).
+    Each song gets its argmax-affinity sources exclusively (≥ AFFINITY_FLOOR),
+    plus IMPURITY_EXTRA next-best for ~80/20 identity; songs below
+    POOL_SIZE_FLOOR distinct sources also borrow the leftover shared pool.
+    """
+    style_hints = style_hints or {}
+    song_ids = []
+    for p in phrase_features:
+        if p.track_index not in song_ids:
+            song_ids.append(p.track_index)
+    if len(song_ids) < SHARED_FALLBACK_MIN_SONGS or song_ids == [-1]:
+        return None
+
+    profiles = _source_profiles(scenes)
+    all_sources = list(profiles.keys())
+    targets = {sid: _song_target([p for p in phrase_features if p.track_index == sid])
+               for sid in song_ids}
+    aff = {sid: {src: _affinity(targets[sid], profiles[src]) for src in all_sources}
+           for sid in song_ids}
+
+    # BALANCED round-robin assignment (not winner-take-all): each song picks its
+    # best still-unassigned source in turn, so sources spread evenly instead of
+    # one song hoovering the corpus and starving the rest. After `target` rounds
+    # every song has ~target exclusive sources (≥ POOL_SIZE_FLOOR when the corpus
+    # allows). target gives a little headroom for ~80/20 primary/secondary look.
+    target = max(POOL_SIZE_FLOOR, len(all_sources) // len(song_ids) + IMPURITY_EXTRA)
+    ranked = {sid: [s for _, s in sorted(((aff[sid][s], s) for s in all_sources),
+                                         key=lambda t: t[0], reverse=True)]
+              for sid in song_ids}
+    exclusive = {sid: set() for sid in song_ids}
+    assigned = set()
+    for _ in range(target):
+        for sid in song_ids:
+            for src in ranked[sid]:
+                if src not in assigned and aff[sid][src] >= AFFINITY_FLOOR:
+                    exclusive[sid].add(src)
+                    assigned.add(src)
+                    break
+
+    shared = [s for s in all_sources if s not in assigned]
+    pools = {}
+    for sid in song_ids:
+        pool = set(exclusive[sid])
+        if len(pool) < POOL_SIZE_FLOOR:    # starved → borrow the leftover shared pool
+            pool |= set(shared)
+        pools[sid] = pool
+    return pools
+
+
 def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
     """Select clips with hard variety enforcement and adaptive diversity."""
     if style_hints is None:
@@ -1317,11 +1431,20 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
 
     total_sources = len(set(s.source_name for s in scenes))
     total_phrases = len(phrase_features)
-    # Cap: no source can exceed this many uses
+    # Global cap (used for the degenerate single-song path).
     max_source_uses = max(3, int(total_phrases / max(total_sources, 1) * MAX_SOURCE_USAGE_MULT))
 
+    # Per-song source pools (Phase 3). None ⇒ degenerate single-song ⇒ the full
+    # global pool + global cap (byte-identical to the pre-per-song planner).
+    song_pools = assign_song_source_pools(phrase_features, scenes, style_hints)
+    phrases_per_song = Counter(p.track_index for p in phrase_features)
+    cur_scenes = scenes               # current song's candidate pool
+    cur_pool_sources = None           # set of source_names (None = all)
+    cur_max_uses = max_source_uses
+    cross_pool_fallbacks = 0          # clips chosen from OUTSIDE the song pool
+
     for i, phrase in enumerate(phrase_features):
-        # ── Song boundary → reset per-song selection state ──
+        # ── Song boundary → reset per-song selection state + swap in pool ──
         if phrase.track_index != prev_track:
             selected_clips = []
             recent_sources = []
@@ -1329,9 +1452,17 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
             source_use_count = {}
             scene_use_count = {}
             prev_track = phrase.track_index
+            if song_pools is not None and phrase.track_index in song_pools:
+                cur_pool_sources = song_pools[phrase.track_index]
+                cur_scenes = [s for s in scenes if s.source_name in cur_pool_sources]
+                n_src = max(len(cur_pool_sources), 1)
+                n_phr = phrases_per_song.get(phrase.track_index, total_phrases)
+                cur_max_uses = max(2, int(n_phr / n_src * MAX_SOURCE_USAGE_MULT_SONG))
+            else:
+                cur_pool_sources, cur_scenes, cur_max_uses = None, scenes, max_source_uses
 
         scored = []
-        for clip in scenes:
+        for clip in cur_scenes:
             # Hard block: perceptual near-duplicate (Phase A).
             # near_dup-flagged clips are excluded from the strict pool the same
             # way as VARIETY_WINDOW — both are perceptual-diversity constraints.
@@ -1349,7 +1480,7 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
 
             # Hard block: skip if source hit usage ceiling
             use_count = source_use_count.get(clip.source_name, 0)
-            if use_count >= max_source_uses:
+            if use_count >= cur_max_uses:
                 continue
 
             s = score_scene(clip, phrase, style_hints)
@@ -1369,30 +1500,32 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
 
         if not scored:
             # Fallback 1: relax perceptual-diversity constraints (VARIETY_WINDOW
-            # AND near_dup hard skip) together. Keep scene dedup + usage ceiling.
-            for clip in scenes:
+            # AND near_dup hard skip) together, still WITHIN the song pool.
+            # Keep scene dedup + usage ceiling.
+            for clip in cur_scenes:
                 scene_key = f"{clip.source_name}:{clip.scene_index}"
                 if scene_key in recent_scenes:
                     continue
                 use_count = source_use_count.get(clip.source_name, 0)
-                if use_count >= max_source_uses:
+                if use_count >= cur_max_uses:
                     continue
                 s = score_scene(clip, phrase, style_hints)
                 scored.append((s, clip))
 
         if not scored:
-            # Fallback 2: drop scene dedup too. Last meaningful constraint
-            # (usage ceiling) still applies.
+            # Fallback 2: ESCAPE the song pool to the full corpus (starvation
+            # safety — a clip must always be selectable to keep the frame-exact
+            # contract). Drop scene dedup; usage ceiling still applies.
             for clip in scenes:
                 use_count = source_use_count.get(clip.source_name, 0)
-                if use_count >= max_source_uses:
+                if use_count >= cur_max_uses:
                     continue
                 s = score_scene(clip, phrase, style_hints)
                 scored.append((s, clip))
 
         if not scored:
-            # Last resort: fully relaxed (including usage ceiling). Should
-            # essentially never fire on a healthy corpus.
+            # Last resort: fully relaxed over the full corpus. Should essentially
+            # never fire on a healthy corpus.
             for clip in scenes:
                 s = score_scene(clip, phrase, style_hints)
                 scored.append((s, clip))
@@ -1446,6 +1579,11 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
             chosen_idx = 0
 
         best_score, best_clip = pool[chosen_idx]
+
+        # Cross-pool bleed: the chosen clip came from outside this song's pool
+        # (a fallback-tier escape). A healthy assignment keeps this near zero.
+        if cur_pool_sources is not None and best_clip.source_name not in cur_pool_sources:
+            cross_pool_fallbacks += 1
 
         # ── Frame-exact render plan ──────────────────────────────────────
         # The clip must end at the frame nearest the phrase's end on the
@@ -1570,6 +1708,13 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
         source_use_count[best_clip.source_name] = source_use_count.get(best_clip.source_name, 0) + 1
         skey = (best_clip.source_name, best_clip.scene_index)
         scene_use_count[skey] = scene_use_count.get(skey, 0) + 1
+
+    if song_pools is not None:
+        rate = cross_pool_fallbacks / max(len(selections), 1)
+        sizes = sorted(len(p) for p in song_pools.values())
+        print(f"    Per-song pools: {len(song_pools)} songs, "
+              f"{sizes[0]}–{sizes[-1]} sources/song (median {sizes[len(sizes)//2]})  |  "
+              f"cross_pool_fallback_rate {rate:.1%} ({cross_pool_fallbacks}/{len(selections)})")
 
     return selections
 
