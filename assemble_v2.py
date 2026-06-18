@@ -154,6 +154,13 @@ AFFINITY_FLOOR = 0.15      # a source must clear this affinity to be assigned ex
 IMPURITY_EXTRA = 2         # +N next-best sources per song ("seasoning": ~80/20 identity)
 SHARED_FALLBACK_MIN_SONGS = 2  # <this many songs ⇒ skip partition (global pool = current behavior)
 
+# ─── Longer Clips / Holds (Phase 5) ───────────────────────────────────────
+NATIVE_FIT_WEIGHT = 0.6    # selection nudge toward phrase-length scenes (guarded low)
+HOLD_MIN_SCENE_SEC = 12.0  # a scene must be at least this long to anchor a multi-phrase hold
+HOLD_MAX_SEC = 24.0        # a hold spans at most this many seconds of the timeline
+HOLD_ENERGY_DELTA = 0.12   # phrases in a hold must stay within this energy band
+HOLD_SPEEDFIT_MIN = 0.7    # allow a speedfit hold down to this (scene_len / span)
+
 # ─── Frame-Exact Rendering ────────────────────────────────────────────────
 # Every clip is planned in *frames* anchored to the audio timeline: clip i
 # always ends at the frame nearest (phrase_i.end_sec - timeline_start), so
@@ -177,7 +184,7 @@ BEATLOOP_BPM_MAX = 200.0
 # this fraction of the corpus — ubiquitous terms ('abstract' in an
 # abstract-art corpus) make the lyric bonus indiscriminate.
 CANON_MATCH_MAX_DF = 0.03
-PINGPONG_MAX_SCENE = 15.0  # ping-pong only for scenes ≤ this — ffmpeg reverse buffers
+PINGPONG_MAX_SCENE = 8.0   # ping-pong only for scenes ≤ this — ffmpeg reverse buffers
                            # the whole clip in RAM (~3 MB/frame at 1080p)
 
 # ─── MMR Diversity Re-ranking (Phase C) ──────────────────────────────────
@@ -997,6 +1004,24 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
                 / (phrase.semantic_sim_hi - phrase.semantic_sim_lo))
         semantic_sim_bonus = min(max(norm, 0.0), 1.0) * 0.4
 
+    # 14 (Phase 5a). Native-fit: prefer scenes whose NATIVE length lands in the
+    #     window/speedfit band for this phrase (render as a single play, no
+    #     loop/ping-pong), and down-weight tiny salvage shards that force ping-
+    #     pong. Deliberately LOW weight so an exceptional short clip still beats
+    #     a mediocre long one — this mostly breaks ties, it is not a duration
+    #     tyrant (the real looping fix is the multi-phrase hold, Phase 5c).
+    ratio = clip.duration_sec / max(phrase.duration_sec, 1e-6)
+    if ratio >= SPEED_FIT_MAX:
+        native_fit = 1.0
+    elif ratio >= SPEED_FIT_MIN:
+        native_fit = 0.9
+    elif ratio >= 0.45:
+        native_fit = 0.5
+    else:
+        native_fit = 0.15
+    if clip.sub_index > 0 and clip.duration_sec < SALVAGE_MIN_DURATION * 1.5:
+        native_fit *= 0.5
+
     # Soft de-emphasis of duration matching when the per-phrase BPM detection
     # is unconfident (breakdowns, intros/outros, transitions). At zero
     # confidence dur_match retains 60% of its weight — mild, not "near-disable."
@@ -1017,6 +1042,7 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
         loop_bonus +
         clip_sim_bonus +
         semantic_sim_bonus +
+        native_fit * NATIVE_FIT_WEIGHT +
         quality_penalty
     )
 
@@ -1395,6 +1421,33 @@ def assign_song_source_pools(phrase_features, scenes, style_hints=None):
     return pools
 
 
+def _hold_k(clip, phrase_features, i):
+    """How many EXTRA consecutive phrases a long scene should hold across.
+
+    Lets strong footage breathe (Phase 5c): a single long scene spans K+1
+    phrases instead of being replaced every phrase. The clip still ends on a
+    phrase boundary (on-beat, frame-exact) — just K phrases later. Extends only
+    within the same song, through energy-stable, non-building phrases, while the
+    scene is long enough to fill the span as a single play (or a mild speedfit),
+    never a loop. Returns 0 (no hold) unless all conditions hold.
+    """
+    if clip.duration_sec < HOLD_MIN_SCENE_SEC:
+        return 0
+    base = phrase_features[i]
+    k = 0
+    while i + k + 1 < len(phrase_features):
+        nxt = phrase_features[i + k + 1]
+        if nxt.track_index != base.track_index:
+            break
+        if nxt.energy_shape == "building" or abs(nxt.energy - base.energy) > HOLD_ENERGY_DELTA:
+            break
+        span = nxt.end_sec - base.start_sec
+        if span > HOLD_MAX_SEC or clip.duration_sec < HOLD_SPEEDFIT_MIN * span:
+            break
+        k += 1
+    return k
+
+
 def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
     """Select clips with hard variety enforcement and adaptive diversity."""
     if style_hints is None:
@@ -1443,7 +1496,9 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
     cur_max_uses = max_source_uses
     cross_pool_fallbacks = 0          # clips chosen from OUTSIDE the song pool
 
-    for i, phrase in enumerate(phrase_features):
+    i = 0
+    while i < len(phrase_features):
+        phrase = phrase_features[i]
         # ── Song boundary → reset per-song selection state + swap in pool ──
         if phrase.track_index != prev_track:
             selected_clips = []
@@ -1585,14 +1640,22 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
         if cur_pool_sources is not None and best_clip.source_name not in cur_pool_sources:
             cross_pool_fallbacks += 1
 
+        # Phase 5c: multi-phrase hold — a long enough scene spans K extra
+        # phrases (cut only at the later phrase boundary = still on-beat), so
+        # strong footage breathes instead of being replaced every phrase. The
+        # enlarged target then renders as window/speedfit (single play), never
+        # a loop. The absorbed phrases are consumed (i advances by hold_k+1).
+        hold_k = _hold_k(best_clip, phrase_features, i)
+        hold_end_phrase = phrase_features[i + hold_k]
+
         # ── Frame-exact render plan ──────────────────────────────────────
-        # The clip must end at the frame nearest the phrase's end on the
+        # The clip must end at the frame nearest the (held) phrase's end on the
         # audio timeline. v2.0 truncated clips to scene length (most scenes
         # are shorter than their phrase), which desynced every later cut.
         # Snap the planned end to the beat grid first: a near-no-op for
         # unmerged 2.2.0 phrases (already beat times), but protects merged
         # boundaries and pre-2.2.0 JSONs from landing between beats.
-        end_frame = int(round((_snap_to_beat(phrase.end_sec, beat_grid) - timeline_start) * FPS))
+        end_frame = int(round((_snap_to_beat(hold_end_phrase.end_sec, beat_grid) - timeline_start) * FPS))
         n_frames = max(end_frame - frames_emitted, FPS)  # never under 1s
         target_dur = n_frames / FPS
         frames_emitted += n_frames
@@ -1619,13 +1682,21 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
                 if local_ioi > 0:
                     local_bpm = 60.0 / local_ioi
 
-        if scene_dur >= target_dur * SPEED_FIT_MAX:
+        # Phase 5b: widen the speed-fit band when the tempo is confident (a
+        # stable tempo tolerates retiming). This pulls more near-fit scenes into
+        # speedfit (a single play, slightly slowed/sped) instead of loop/ping-
+        # pong, directly cutting the looping rate.
+        conf = max(0.0, min(1.0, phrase.bpm_confidence))
+        sf_max = SPEED_FIT_MAX + 0.15 * conf
+        sf_min = SPEED_FIT_MIN - 0.10 * conf
+
+        if scene_dur >= target_dur * sf_max:
             # Long scene: cut a phrase-length window. Vary the offset so a
             # reused scene shows different footage, not its opening frames.
             max_off = scene_dur - target_dur - 0.1
             if max_off > 0.5:
                 clip_start += float(np.random.uniform(0, max_off))
-        elif scene_dur >= target_dur * SPEED_FIT_MIN:
+        elif scene_dur >= target_dur * sf_min:
             # Near fit: play the whole scene, speed-adjusted to land exactly
             # (slow-mo below 1.0, speed-up above).
             render_mode = "speedfit"
@@ -1666,9 +1737,10 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
 
         selections.append({
             "phrase_index": i,
+            "held_phrases": hold_k + 1,   # 1 = no hold; >1 = spans this many phrases
             "audio_start": phrase.start_sec,
-            "audio_end": phrase.end_sec,
-            "audio_duration": phrase.duration_sec,
+            "audio_end": hold_end_phrase.end_sec,
+            "audio_duration": round(hold_end_phrase.end_sec - phrase.start_sec, 4),
             "clip_source": best_clip.source_path,
             "clip_source_name": best_clip.source_name,
             "scene_index": best_clip.scene_index,
@@ -1708,6 +1780,9 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
         source_use_count[best_clip.source_name] = source_use_count.get(best_clip.source_name, 0) + 1
         skey = (best_clip.source_name, best_clip.scene_index)
         scene_use_count[skey] = scene_use_count.get(skey, 0) + 1
+
+        # Advance past this clip and any phrases its hold absorbed.
+        i += hold_k + 1
 
     if song_pools is not None:
         rate = cross_pool_fallbacks / max(len(selections), 1)
