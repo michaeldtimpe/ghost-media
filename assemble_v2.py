@@ -570,6 +570,9 @@ class PhraseFeatures:
     percussive_ratio: float # 0-1
     bpm: float
     track_title: str
+    # Numeric song id for per-song selection (grouping/state-reset key).
+    # -1 = no segmentation (degenerate single-song = pre-per-song behavior).
+    track_index: int = -1
     # Percentile rank of onsets/sec within the current set (0-1).
     # Independent of energy: distinguishes "lots of small percussive hits"
     # from "one sustained pad" at the same loudness.
@@ -812,9 +815,11 @@ def extract_phrase_features(data, phrases):
             bpm_conf = 1.0
 
         track = ""
+        track_idx = -1
         for tr in tracks:
             if tr["start_sec"] <= start < tr["end_sec"]:
                 track = tr["title"]
+                track_idx = tr.get("track_index", -1)
                 break
 
         results.append(PhraseFeatures(
@@ -828,6 +833,7 @@ def extract_phrase_features(data, phrases):
             percussive_ratio=float(perc_ratio),
             bpm=float(bpm),
             track_title=track,
+            track_index=track_idx,
             onset_density_rank=float(dens_rank),
             bpm_confidence=float(bpm_conf),
         ))
@@ -1283,14 +1289,23 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
                  if beat_times is not None and len(beat_times) else None)
 
     selections = []
+    # Per-song state (reset at each song boundary — see the boundary check at
+    # the top of the loop). Each detected song is its own mini-video: variety
+    # windows, usage counts and MMR history are scoped to the song so it builds
+    # its own identity and cross-song variety is automatic. With no segmentation
+    # (all track_index == -1) there is one song spanning the whole set, so this
+    # is byte-identical to the pre-per-song planner.
     selected_clips = []      # SceneClip objects in selection order (for MMR)
     recent_sources = []      # hard block window (source-level)
     recent_scenes = []       # hard block window (scene-level)
-    source_use_count = {}    # global usage tracking
+    source_use_count = {}    # per-song usage tracking
     scene_use_count = {}     # (source_name, scene_index) → uses; identical frames decay fast
+    prev_track = None        # last phrase's track_index (detect song boundary)
 
-    # Frame-exact timeline anchor: clip i always ends at the frame nearest
-    # (phrase_i.end_sec - timeline_start). Per-clip rounding cannot accumulate.
+    # Frame-exact timeline anchor (GLOBAL across songs): clip i always ends at
+    # the frame nearest (phrase_i.end_sec - timeline_start). Per-clip rounding
+    # cannot accumulate. frames_emitted/timeline_start MUST NOT reset per song —
+    # the frame-exact contract spans the whole render.
     timeline_start = phrase_features[0].start_sec if phrase_features else 0.0
     frames_emitted = 0
 
@@ -1306,6 +1321,15 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
     max_source_uses = max(3, int(total_phrases / max(total_sources, 1) * MAX_SOURCE_USAGE_MULT))
 
     for i, phrase in enumerate(phrase_features):
+        # ── Song boundary → reset per-song selection state ──
+        if phrase.track_index != prev_track:
+            selected_clips = []
+            recent_sources = []
+            recent_scenes = []
+            source_use_count = {}
+            scene_use_count = {}
+            prev_track = phrase.track_index
+
         scored = []
         for clip in scenes:
             # Hard block: perceptual near-duplicate (Phase A).
