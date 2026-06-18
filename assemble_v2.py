@@ -721,7 +721,7 @@ def extract_phrase_features(data, phrases):
     hpss = data["hpss_timeline"]
     spectral = data["spectral_timeline"]
     bpm_tl = data["bpm_timeline"]
-    tracks = data.get("tracks", [])
+    tracks = [] if os.environ.get("GHOST_IGNORE_TRACKS") else data.get("tracks", [])
 
     # New in 2.1.0: onset times for per-phrase density, BPM confidence for
     # weighting duration matching. Both fall back to neutral defaults if
@@ -2134,6 +2134,11 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
     if global_state:
         global_state["current_set_clips"] = len(selections)
 
+    if getattr(args, "no_render", False):
+        print(f"\n  [5/5] --no-render: wrote plan ({len(selections)} clips) → "
+              f"{plan_path}, skipping ffmpeg.")
+        return True, len(selections)
+
     # ── 5. Assemble video ──
     print(f"\n  [5/5] Assembling video ({len(selections)} clips)")
     t0 = time.time()
@@ -2194,6 +2199,9 @@ def main():
     parser.add_argument("--no-salvage", action="store_true",
                         help="Discard partially text-flagged scenes whole instead "
                              "of salvaging clean sub-ranges (pre-salvage behavior)")
+    parser.add_argument("--no-render", action="store_true",
+                        help="Stop after writing selection_plan_v2.json; skip ffmpeg "
+                             "render (fast iteration / regression diffing)")
 
     args = parser.parse_args()
 
