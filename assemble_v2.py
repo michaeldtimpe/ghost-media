@@ -155,11 +155,17 @@ IMPURITY_EXTRA = 2         # +N next-best sources per song ("seasoning": ~80/20 
 SHARED_FALLBACK_MIN_SONGS = 2  # <this many songs ⇒ skip partition (global pool = current behavior)
 
 # ─── Longer Clips / Holds (Phase 5) ───────────────────────────────────────
-NATIVE_FIT_WEIGHT = 0.6    # selection nudge toward phrase-length scenes (guarded low)
+NATIVE_FIT_WEIGHT = 0.9    # selection nudge toward phrase-length scenes (single-play)
 HOLD_MIN_SCENE_SEC = 12.0  # a scene must be at least this long to anchor a multi-phrase hold
 HOLD_MAX_SEC = 24.0        # a hold spans at most this many seconds of the timeline
 HOLD_ENERGY_DELTA = 0.12   # phrases in a hold must stay within this energy band
 HOLD_SPEEDFIT_MIN = 0.7    # allow a speedfit hold down to this (scene_len / span)
+
+# ─── Song Mood/Theme + Cohesion (Phase 4) ─────────────────────────────────
+SONG_MOOD_WEIGHT = 0.5     # clip↔song theme-embedding match (continuous, dim 7b)
+COHESION_WEIGHT = 0.5      # clip↔song-anchor visual cohesion (dim 15); keep ≤ MMR_LAMBDA
+COHESION_WARMUP = 3        # first N clips of a song anchor on the stable pool centroid
+COHESION_ANCHOR_BLEND = 0.7  # anchor = this·stable_centroid + (1-this)·running_centroid
 
 # ─── Frame-Exact Rendering ────────────────────────────────────────────────
 # Every clip is planned in *frames* anchored to the audio timeline: clip i
@@ -864,7 +870,8 @@ def extract_phrase_features(data, phrases):
 # All components normalized to 0-1, then weighted equally-ish.
 # No single factor can dominate.
 
-def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> float:
+def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None,
+                song_target=None, song_anchor=None) -> float:
     """Score a scene clip against an audio phrase. All components 0-1."""
     if style_hints is None:
         style_hints = {}
@@ -1022,6 +1029,28 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
     if clip.sub_index > 0 and clip.duration_sec < SALVAGE_MIN_DURATION * 1.5:
         native_fit *= 0.5
 
+    # 7b (Phase 4). Song-mood/theme match: pull every clip in a song toward the
+    #     song's aggregated theme embedding (audio-derived CLAP visual keywords),
+    #     so a song reads as internally consistent and distinct from its
+    #     neighbours — beyond the coarse intense/calm/moderate bucket of dim 7.
+    song_mood_bonus = 0.0
+    if (song_target is not None and song_target.get("emb") is not None
+            and clip.clip_embedding is not None):
+        song_mood_bonus = max(0.0, float(np.dot(song_target["emb"], clip.clip_embedding))) \
+            * SONG_MOOD_WEIGHT
+
+    # 15 (Phase 4). Within-song COHESION: reward similarity to the song ANCHOR
+    #     (a slow-moving, whole-song reference), the counterweight to MMR which
+    #     pushes AWAY from the last-N selected (a fast, local reference). The two
+    #     use different reference sets, so they don't cancel: a clip can match
+    #     the song's identity while still differing from its immediate
+    #     predecessors. The anchor is mostly the stable pool centroid (not a
+    #     pure running centroid) to avoid a self-reinforcing collapse.
+    cohesion_bonus = 0.0
+    if song_anchor is not None and clip.clip_embedding is not None:
+        cohesion_bonus = max(0.0, float(np.dot(song_anchor, clip.clip_embedding))) \
+            * COHESION_WEIGHT
+
     # Soft de-emphasis of duration matching when the per-phrase BPM detection
     # is unconfident (breakdowns, intros/outros, transitions). At zero
     # confidence dur_match retains 60% of its weight — mild, not "near-disable."
@@ -1043,6 +1072,8 @@ def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None) -> fl
         clip_sim_bonus +
         semantic_sim_bonus +
         native_fit * NATIVE_FIT_WEIGHT +
+        song_mood_bonus +
+        cohesion_bonus +
         quality_penalty
     )
 
@@ -1368,7 +1399,8 @@ def _affinity(song, src_profile):
     return 0.6 * emb_sim + 0.4 * mood_match
 
 
-def assign_song_source_pools(phrase_features, scenes, style_hints=None):
+def assign_song_source_pools(phrase_features, scenes, style_hints=None,
+                             profiles=None, song_targets=None):
     """Greedy mostly-exclusive source→song assignment with shared fallback.
 
     Returns {track_index: set(source_names)} or None when there's effectively
@@ -1385,10 +1417,12 @@ def assign_song_source_pools(phrase_features, scenes, style_hints=None):
     if len(song_ids) < SHARED_FALLBACK_MIN_SONGS or song_ids == [-1]:
         return None
 
-    profiles = _source_profiles(scenes)
+    if profiles is None:
+        profiles = _source_profiles(scenes)
     all_sources = list(profiles.keys())
-    targets = {sid: _song_target([p for p in phrase_features if p.track_index == sid])
-               for sid in song_ids}
+    targets = song_targets or {
+        sid: _song_target([p for p in phrase_features if p.track_index == sid])
+        for sid in song_ids}
     aff = {sid: {src: _affinity(targets[sid], profiles[src]) for src in all_sources}
            for sid in song_ids}
 
@@ -1452,6 +1486,18 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
     """Select clips with hard variety enforcement and adaptive diversity."""
     if style_hints is None:
         style_hints = {}
+
+    # Re-derive track_index from the preserved track_title. The phrase-merge and
+    # vocal-cut passes reconstruct PhraseFeatures and drop the (newer)
+    # track_index field (→ -1), but they keep track_title — so without this,
+    # per-song grouping fragments every merged phrase into a spurious -1 "song".
+    # track_title is unique per song ("track_NN") and "" only when unsegmented
+    # (degenerate → one group → pre-per-song behavior).
+    _title_to_idx = {}
+    for _p in phrase_features:
+        if _p.track_title not in _title_to_idx:
+            _title_to_idx[_p.track_title] = len(_title_to_idx)
+        _p.track_index = _title_to_idx[_p.track_title]
     beat_grid = (np.asarray(beat_times, dtype=np.float64)
                  if beat_times is not None and len(beat_times) else None)
 
@@ -1489,11 +1535,34 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
 
     # Per-song source pools (Phase 3). None ⇒ degenerate single-song ⇒ the full
     # global pool + global cap (byte-identical to the pre-per-song planner).
-    song_pools = assign_song_source_pools(phrase_features, scenes, style_hints)
+    song_ids = []
+    for p in phrase_features:
+        if p.track_index not in song_ids:
+            song_ids.append(p.track_index)
+    src_profiles = _source_profiles(scenes)
+    song_targets = {sid: _song_target([p for p in phrase_features if p.track_index == sid])
+                    for sid in song_ids}
+    song_pools = assign_song_source_pools(phrase_features, scenes, style_hints,
+                                          profiles=src_profiles, song_targets=song_targets)
+    # Stable per-song cohesion anchor (Phase 4): mean CLIP centroid of the
+    # song's pool sources — a fixed target so cohesion doesn't self-reinforce.
+    pool_centroid = {}
+    if song_pools is not None:
+        for sid, srcs in song_pools.items():
+            cens = [src_profiles[s]["centroid"] for s in srcs
+                    if src_profiles.get(s, {}).get("centroid") is not None]
+            if cens:
+                c = np.mean(np.array(cens, dtype=np.float64), axis=0)
+                n = np.linalg.norm(c)
+                pool_centroid[sid] = c / n if n > 0 else None
     phrases_per_song = Counter(p.track_index for p in phrase_features)
     cur_scenes = scenes               # current song's candidate pool
     cur_pool_sources = None           # set of source_names (None = all)
     cur_max_uses = max_source_uses
+    cur_song_target = None            # Phase 4: this song's theme target
+    cur_stable_anchor = None          # Phase 4: fixed pool centroid for cohesion
+    sel_emb_sum = None                # running sum of selected clip embeddings
+    sel_emb_n = 0
     cross_pool_fallbacks = 0          # clips chosen from OUTSIDE the song pool
 
     i = 0
@@ -1507,14 +1576,29 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
             source_use_count = {}
             scene_use_count = {}
             prev_track = phrase.track_index
+            sel_emb_sum, sel_emb_n = None, 0    # reset running cohesion centroid
             if song_pools is not None and phrase.track_index in song_pools:
                 cur_pool_sources = song_pools[phrase.track_index]
                 cur_scenes = [s for s in scenes if s.source_name in cur_pool_sources]
                 n_src = max(len(cur_pool_sources), 1)
                 n_phr = phrases_per_song.get(phrase.track_index, total_phrases)
                 cur_max_uses = max(2, int(n_phr / n_src * MAX_SOURCE_USAGE_MULT_SONG))
+                cur_song_target = song_targets.get(phrase.track_index)
+                cur_stable_anchor = pool_centroid.get(phrase.track_index)
             else:
                 cur_pool_sources, cur_scenes, cur_max_uses = None, scenes, max_source_uses
+                cur_song_target, cur_stable_anchor = None, None
+
+        # Phase 4: cohesion anchor = mostly the stable pool centroid, blended
+        # with the running selected centroid once past the warmup (so a song
+        # finds its identity then reinforces it, without collapsing — the stable
+        # term dominates). None until a song's pool centroid exists.
+        cur_anchor = cur_stable_anchor
+        if cur_stable_anchor is not None and sel_emb_n >= COHESION_WARMUP and sel_emb_sum is not None:
+            run = sel_emb_sum / sel_emb_n
+            blend = COHESION_ANCHOR_BLEND * cur_stable_anchor + (1 - COHESION_ANCHOR_BLEND) * run
+            bn = np.linalg.norm(blend)
+            cur_anchor = blend / bn if bn > 0 else cur_stable_anchor
 
         scored = []
         for clip in cur_scenes:
@@ -1538,7 +1622,7 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
             if use_count >= cur_max_uses:
                 continue
 
-            s = score_scene(clip, phrase, style_hints)
+            s = score_scene(clip, phrase, style_hints, cur_song_target, cur_anchor)
 
             # Steeper soft penalty for overused sources
             if use_count > 0:
@@ -1564,7 +1648,7 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
                 use_count = source_use_count.get(clip.source_name, 0)
                 if use_count >= cur_max_uses:
                     continue
-                s = score_scene(clip, phrase, style_hints)
+                s = score_scene(clip, phrase, style_hints, cur_song_target, cur_anchor)
                 scored.append((s, clip))
 
         if not scored:
@@ -1575,14 +1659,14 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
                 use_count = source_use_count.get(clip.source_name, 0)
                 if use_count >= cur_max_uses:
                     continue
-                s = score_scene(clip, phrase, style_hints)
+                s = score_scene(clip, phrase, style_hints, cur_song_target, cur_anchor)
                 scored.append((s, clip))
 
         if not scored:
             # Last resort: fully relaxed over the full corpus. Should essentially
             # never fire on a healthy corpus.
             for clip in scenes:
-                s = score_scene(clip, phrase, style_hints)
+                s = score_scene(clip, phrase, style_hints, cur_song_target, cur_anchor)
                 scored.append((s, clip))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -1780,6 +1864,12 @@ def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):
         source_use_count[best_clip.source_name] = source_use_count.get(best_clip.source_name, 0) + 1
         skey = (best_clip.source_name, best_clip.scene_index)
         scene_use_count[skey] = scene_use_count.get(skey, 0) + 1
+
+        # Running cohesion centroid (Phase 4): accumulate selected embeddings.
+        if best_clip.clip_embedding is not None:
+            sel_emb_sum = (best_clip.clip_embedding.astype(np.float64) if sel_emb_sum is None
+                           else sel_emb_sum + best_clip.clip_embedding)
+            sel_emb_n += 1
 
         # Advance past this clip and any phrases its hold absorbed.
         i += hold_k + 1
