@@ -764,3 +764,86 @@ dropped (with a timestamp gap) by a later `concat -c copy`; trim the first
 frame of the reversed half. (2) `-frames:v N` is the only duration control
 that survives all of this — frame counts, never wall-clock seconds, are the
 unit the sync contract is written in.
+
+# Per-song re-architecture + electric-dreams integration (2026-06)
+
+## DJ sets are songs, not one stream — make the song the unit of selection
+The biggest coherence win wasn't a scoring tweak: it was changing the planner's
+unit of organization from "whole 68-min set, one global clip pool" to
+"per-song mini-video." `scripts/segment_songs.py` infers song boundaries from
+the existing deep-analysis (key/BPM/energy/spectral novelty, snapped to 16-bar
+phrases — no audio re-analysis) and writes `tracks[]`. `select_clips` then
+resets variety/usage/MMR state at each song boundary and gives each song a
+mostly-exclusive source pool. Result on waiting-to-begin: median uninterrupted
+run 3.7s→7.5s, single-play 30%→74%, looping 70%→26%. Bias segmentation toward
+FEWER/LONGER songs (`MIN_SONG_SEC=120`): over-segmentation chops identity,
+under-segmentation degrades gracefully.
+
+## `frames_emitted` must stay GLOBAL across songs
+The frame-exact contract spans the whole render. The per-song refactor resets
+everything EXCEPT `frames_emitted`/`timeline_start` — resetting those re-anchors
+each song to frame 0 and desyncs the back half. The regression gate
+(`GHOST_IGNORE_TRACKS=1` → byte-identical plan vs pre-refactor) is what proved
+the wrap was clean before per-song logic was layered on.
+
+## Phrase merges silently drop new PhraseFeatures fields
+`merge_phrases_adaptive` and `adjust_cuts_for_vocals` reconstruct
+`PhraseFeatures`, listing fields explicitly — so a newly-added field
+(`track_index`) defaulted to -1 on every merged phrase, fragmenting 65 phrases
+into a spurious "song." Fix: re-derive `track_index` from the preserved
+`track_title` at the top of `select_clips` rather than trusting it survives the
+merge passes. Lesson: new identity fields need re-derivation after any pass that
+rebuilds the dataclass.
+
+## Source-sequence runs preserve the original videos' long-form context
+"Show clips in their original order" is a real continuity lever: once a
+long-form source (high mean scene length) is chosen, continue with ITS next
+scenes IN ORDER for a bounded run (`_next_in_sequence`, bypasses the variety
+window). It's a selection-only change — each clip is still planned frame-exact.
+
+## Cohesion vs MMR don't fight if they reference different sets
+Within-song cohesion rewards similarity to a slow-moving SONG anchor; MMR
+penalizes similarity to the last-N selected (fast, local). Different reference
+sets → they coexist. The anchor must be mostly the STABLE pool centroid
+(0.7·stable + 0.3·running), never a pure running centroid — a pure running
+centroid self-reinforces and collapses a song to one subtype.
+
+## A naive content-safety lexicon drowns in VJ vocabulary
+Flagging unsafe scenes by scanning VLM descriptions works, but "graphic"
+(motion graphics), "shooting" (light), "hanging" (objects), "blade" (light
+blades), "blood-red" (a colour) collide with abstract footage — a naive lexicon
+flagged 1,149 scenes (4%, mostly false). A high-precision lexicon (concrete
+gore/weapon/sexual terms only) flagged 159 (0.5%) genuine ones.
+`scripts/flag_content_safety.py` → `content_safety_flags.json` → assembler hard
+excludes. No new VLM pass — mines the existing enrichment.
+
+## Per-scene text feedback converges over renders, not in one
+`check_render_text --update-flags` flags the CURRENT render's OCR hits, but the
+next render (different seed/corpus) selects DIFFERENT text-bearing scenes, so
+the total hit count doesn't drop in one pass. Caption-heavy sources needed a
+hard exclude (`CAPTION_HEAVY_SOURCES` in `build_scene_database`), not just the
+soft avoid_sources penalty, which leaked burned-in text.
+
+## Concat-copy seam flashes: closed-GOP + scene-end guard
+A "single frame of the next scene" at cuts has two causes: (1) B-frame
+reordering across `concat -c copy` segment seams — fix with `-bf 0` +
+`open-gop=0` so segments are independently decodable; (2) speedfit/loop reads to
+a mis-detected scene end pulling the source's NEXT-scene frame — fix with a
+~2-frame `SCENE_END_GUARD` on the read (tpad clones to refill).
+
+## electric-dreams headless render — Electron gotchas (Part B)
+Filtering footage through the ED VJ engine offline (`--render` in
+electric-dreams) hit three Electron traps worth remembering:
+(1) `allow-scripts` blocks Electron's postinstall → `dist/` is a stub; extract
+the cached zip manually (`ditto -x -k ~/Library/Caches/electron/*/electron-*.zip
+node_modules/electron/dist/`) and write `path.txt`.
+(2) Electron's bundled Chromium has NO H.264/AAC decoder → the HTML5 video
+underlay can only play VP8/VP9 WebM; transcode inputs to VP9 first, but mux the
+ORIGINAL file's audio into the output so quality is untouched.
+(3) Electron GUI apps detach stdout on macOS → `console.log` is lost; log to a
+file. Also: `electron <path>` is relative to CWD — the built main is at
+`apps/electron/out/main/index.js`, not `out/main/index.js`.
+(4) Cost: `webContents.capturePage()` at retina (2560×1440) runs ~8× real-time.
+The full 68-min render needs a smaller window + JPEG frames to be practical
+(~9h → ~2h). Audio must stay real-time (Web Audio can't go fully offline), so
+the capture loop is paced to the audio clock.
