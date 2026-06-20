@@ -579,3 +579,60 @@ ghost-media/                 # (the generated data dirs/files below are gitignor
 ├── analyze_dj_set.py        # Basic audio analysis (legacy)
 └── assemble_music_video.py  # v1 assembler (legacy)
 ```
+
+## Per-Song Selection (2026-06)
+
+DJ sets are sequences of songs, so the assembler now plans **per song** instead
+of over one global pool.
+
+1. **Song segmentation** — `scripts/segment_songs.py` reads an existing
+   `.deep-analysis.json` and writes `tracks[]` (no audio re-analysis). Fuses
+   key-change + BPM-step + energy-dip/rebuild + spectral-centroid novelty on a
+   1 Hz grid, peak-picks with a min-song-length guard, snaps boundaries to
+   16-bar phrase starts (keeps cuts on-beat). Biased to fewer/longer songs
+   (`MIN_SONG_SEC=120`). The assembler joins phrases→tracks by time-overlap
+   (`PhraseFeatures.track_index`, re-derived from `track_title` in
+   `select_clips` because phrase-merge passes drop the field).
+
+2. **Per-song state + pools** — `select_clips` resets variety windows, usage
+   counts and MMR history at each song boundary. `assign_song_source_pools`
+   gives each song a balanced, mostly-exclusive set of source videos by
+   song↔source affinity (theme-embedding cosine + mood-energy), round-robin
+   assigned, with an adjacent-song distinctness penalty (`ADJACENT_DISTINCT_WEIGHT`)
+   so neighbouring songs look different. Starved songs borrow a shared pool;
+   scoring tiers 3-4 escape to the full corpus (frame-exact safety).
+   `cross_pool_fallback_rate` is logged.
+
+3. **Mood/theme + cohesion** — scoring adds a song-mood term (clip vs the song's
+   aggregated CLAP theme embedding) and a within-song cohesion term (clip vs a
+   stable song anchor = 0.7·pool-centroid + 0.3·running-centroid). Coexists with
+   MMR (different reference sets).
+
+4. **Longer clips** — native-fit bias (`NATIVE_FIT_WEIGHT`) toward
+   phrase-length scenes; bpm-gated speed-fit band; `PINGPONG_MAX_SCENE` 15→8;
+   **multi-phrase holds** (`_hold_k`) let a long scene span K phrases (cut on a
+   later phrase boundary, still on-beat); **source-sequence runs**
+   (`_next_in_sequence`) continue a long-form source's next scenes IN ORDER.
+
+Key constants live in the `assemble_v2.py` constants block (RUN_*, HOLD_*,
+COHESION_*, POOL_SIZE_FLOOR, AFFINITY_FLOOR, MAX_SOURCE_USAGE_MULT_SONG,
+NATIVE_FIT_WEIGHT, SCENE_END_GUARD_SEC). `frames_emitted`/`timeline_start` stay
+GLOBAL — the frame-exact contract spans the whole render.
+
+## Content-Safety + Caption Exclusion
+
+`scripts/flag_content_safety.py` mines the existing VLM semantics for a
+high-precision unsafe-content lexicon (gore/weapon/sexual/grotesque) and writes
+`content_safety_flags.json` (committed). `build_scene_database` hard-excludes
+those scenes, and hard-excludes whole `CAPTION_HEAVY_SOURCES` files (burned-in
+text leaks past per-second flagging). Both are conservative auto-excludes.
+
+## Generative Layer — electric-dreams (Part B, in progress)
+
+The "other visuals engine" is **electric-dreams** (separate repo, Electron +
+WebGL VJ). A headless offline renderer (`--render` in electric-dreams) filters a
+finished ghost-media video THROUGH ED: the mp4 becomes a video-underlay,
+audio-reactive ED styles + post-FX are applied, frames are captured and the
+original audio re-muxed. WebM transcode for the underlay (Chromium lacks H.264);
+original audio preserved. Look selection + the full render are pending; the next
+footage idea is song-ID via AcoustID to fetch/feature each song's own video.

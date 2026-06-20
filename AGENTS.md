@@ -190,3 +190,14 @@ The assembler (`assemble_v2.py`) only needs numpy and FFmpeg — it reads pre-co
 - Vision model inference is slow (~45-65 seconds per frame via Ollama; MLX is ~1.9× faster). The fast text scanner mitigates this with adaptive sampling.
 - `sets/` may be a **symlink** into the archive drive on dev machines (`ln -s /Volumes/archive/temp/media-analysis/sets sets`). The assembler resolves `analysis` paths via `BASE_DIR / "sets" / ...`. Untracked, gitignored.
 - Moving to a new machine? **[MIGRATION.md](MIGRATION.md)** has the full copy list (which gitignored data is expensive to regenerate), the hardcoded paths to update (`SOURCE_DIR` / `SETS_DIR` in `assemble_v2.py`), and a post-move verification checklist including the frame-exact render check.
+
+## Per-song selection + safety (2026-06)
+
+- `scripts/segment_songs.py <deep-analysis.json> [--dry-run] [--min-song-sec 120]` — infer song boundaries from the analysis and write `tracks[]` (no audio re-analysis). Run once per set before assembling so the assembler plans per-song. Biased to fewer/longer songs.
+- `scripts/flag_content_safety.py [--dry-run]` — scan enriched semantics for a high-precision unsafe lexicon → `content_safety_flags.json` (committed; assembler hard-excludes). Re-run after enriching new footage. The lexicon deliberately omits VJ-collision terms ("graphic"/"shooting"/"blade"/"blood-red").
+- `assemble_v2.py --no-render` — stop after writing `selection_plan_v2.json` (skip ffmpeg); ~20s vs ~25min. Use for fast selection iteration + regression diffs. `GHOST_IGNORE_TRACKS=1` forces the degenerate single-song path (regression gate: byte-identical plan vs pre-per-song).
+- Per-song behaviour: each detected song gets a mostly-exclusive source pool; `cross_pool_fallback_rate` near-zero = healthy. `CAPTION_HEAVY_SOURCES` (assemble_v2.py) are hard-excluded.
+
+## electric-dreams (generative layer, separate repo `~/Downloads/electric-dreams`)
+- Headless filter render: `cd ~/Downloads/electric-dreams && ./node_modules/.bin/electron apps/electron/out/main/index.js --render --input <mp4> --out <mp4> [--look <name>] [--fps 30] [--duration S]`. `--look` ∈ chroma/posterize/halftone/duotone/pixelate/trails/smoke/swarm/spectra/shapes/tunnel/glow/dream/heavy (see `LOOKS` in `apps/electron/src/main/index.ts`).
+- Setup gotchas: `npm install` then `npm run build`; if `node_modules/electron/dist` is a stub, `ditto -x -k ~/Library/Caches/electron/*/electron-*.zip node_modules/electron/dist/` + write `path.txt`. Logs go to `/tmp/ed_diag.log` (Electron detaches stdout). Inputs auto-transcode to VP9 webm (Chromium has no H.264); original audio is preserved.
