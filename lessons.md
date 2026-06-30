@@ -540,6 +540,41 @@ was meant to remove.
 ~550 cuts), require corroboration between independent signals before wiring
 it in. Persist the estimate; gate the behavior.
 
+### Update (2026-06): per-set listen test validated the bass-arrival anchor on `waiting-to-begin-2024`
+
+User reported the `waiting-to-begin-2024` render felt off-beat / mid-phrase /
+mid-vocal. Cut-alignment audit of the selection plan: 100% of cuts landed
+*exactly* on a beat but only 2% on a downbeat — every phrase boundary sat one
+beat *before* the bass-arrival downbeat (`phrase_anchor_offset: 0` while
+`phrase_anchor_candidate_16: 1`; the −1 offset was 100% consistent across all
+546 phrases). An independent check (vocal-line onsets) did *not* favor any
+bar-phase — consistent with the corpus non-convergence above. So we A/B-rendered
+the same 40s section (John Summit "EAT THE BASS", heavy kick) at all four
+bar-phases and let the user pick by ear: **offset 1 (the bass-arrival downbeat)
+clearly locked to the beat; the others didn't.** Anchoring applied → downbeat
+alignment 2% → ~100%.
+
+Two engineering notes from the fix:
+- **Vocal protection must shift in whole *bars*, not single beats.** Once the
+  grid is downbeat-anchored, `adjust_cuts_for_vocals` shifting a boundary ±1–2
+  *beats* to clear a sung word knocks that cut back *off* the downbeat — undoing
+  the anchor for exactly the cuts it touches. Changed `VOCAL_SHIFT_MAX_BEATS` →
+  `VOCAL_SHIFT_MAX_BARS` (whole-bar candidates only). Result: every moved cut
+  stays on a downbeat; mid-word cuts 25 → 17 (the residual are in continuous
+  vocal stretches where no nearby downbeat is word-clear, so they hold on the
+  downbeat — the musically defensible floor).
+- **Measure the plan before paying for the render.** Added `--plan-only` to
+  `assemble_v2.py` (writes `selection_plan_v2.json`, skips the ~40-min clip
+  extraction). The whole bar-phase + vocal tuning loop ran at ~13s/iteration
+  instead of ~40min/iteration.
+
+**Caveat — anchor is still per-set, validated on ONE section.** Offset 1 was
+ear-confirmed on one track of a multi-track DJ set and applied globally; it
+measures ~100% on the *analyzer's* downbeat across the whole set, but a track
+with a different true downbeat phase would still drift. The corpus-level lesson
+stands: don't auto-enable `--anchor-phrases` globally. Per-track anchoring (use
+the set's track boundaries) is the real fix if multi-track drift shows up.
+
 ## `metronomic_deviation_max_sec` is NOT "tracker drift"
 
 The third beat-quality check measures the maximum absolute deviation between

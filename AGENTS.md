@@ -120,9 +120,12 @@ All parameters are constants at the top of `assemble_v2.py`:
 - **Near-duplicate hard skip threshold**: `NEAR_DUP_SIM` (0.97, in `flag_quality.py`)
 - **Phrase merging**: `MERGE_ENERGY_THRESHOLD`, `MERGE_ENERGY_DELTA`, `MAX_MERGED_DURATION`
 - **Scene filtering**: `MIN_SCENE_DURATION`, `MAX_SCENE_DURATION`
+- **Vocal-aware cuts**: `VOCAL_WORD_PAD_SEC`, `VOCAL_SHIFT_MAX_BARS` (clear a sung word by shifting whole *bars*, so the cut stays on a downbeat), `VOCAL_MERGE_MAX_SEC` (hold instead of cut when vocals are continuous)
 - **Per-set creative direction**: `style_hints` dict in `SET_CONFIGS`
 
 The MMR pool ceiling matters more than `MMR_LAMBDA` for tuning — see `lessons.md` "# Selection side". The diagnostic log at `bench/mmr_diagnostics.log` (gitignored) captures per-candidate scoring + cosine penalty for the first 10 phrases of each run; spot-check that before changing constants.
+
+`assemble_v2.py --plan-only` writes `selection_plan_v2.json` and stops before the ~40-min clip extraction — use it to audit cut alignment (on-beat / on-downbeat / mid-word %) at ~13s/iteration when tuning the phrase grid or vocal constants. Cut times to audit are each selection's `audio_start`; cross-reference against `beats.times_sec` / `beats.downbeats_sec`. See `lessons.md` "Downbeat estimation…" for the phrase-anchor (`--anchor-phrases`) story.
 
 ### Auditing perceptual diversity
 

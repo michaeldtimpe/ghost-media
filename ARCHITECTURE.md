@@ -261,10 +261,16 @@ windows are folded onto the rolling median and keep `confidence × 0.25`
 (`beat_quality.octave_corrected_*` records the corrections). `beats` gains a
 *heuristic* downbeat estimate (`downbeats_sec` + margins) persisted for
 observability/audit; phrase anchoring stays opt-in (`--anchor-phrases`)
-because the candidate signals disagree on this corpus (see lessons.md). The
-assembler additionally snaps planned cut frames to `beats.times_sec` and
-moves phrase boundaries off sung words (`adjust_cuts_for_vocals`, word-level
-Whisper timings, ±2 beats max shift) before clip selection.
+because the candidate signals disagree on this corpus (see lessons.md). When
+anchoring *is* applied (validated by ear per-set — `waiting-to-begin-2024` uses
+offset 1), `phrase_anchor_offset` records the offset and phrase boundaries land
+on downbeats. The assembler additionally snaps planned cut frames to
+`beats.times_sec` and moves phrase boundaries off sung words
+(`adjust_cuts_for_vocals`, word-level Whisper timings). That shift is in **whole
+bars** (`VOCAL_SHIFT_MAX_BARS`, ±2 bars max) so a word-clearing move keeps the
+cut on a downbeat rather than knocking it off the bar line. Use
+`assemble_v2.py --plan-only` to regenerate `selection_plan_v2.json` and audit
+cut alignment without paying for the full render.
 
 ### Lyrics (`.lyrics.json`)
 

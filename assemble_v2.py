@@ -605,8 +605,11 @@ def _schema_tuple(data):
 # Padding around word spans when judging whether a cut bisects a word: a cut
 # this close to a word edge is perceptually on the boundary, not mid-word.
 VOCAL_WORD_PAD_SEC = 0.15
-# How far a phrase boundary may move to clear a word, in beats either side.
-VOCAL_SHIFT_MAX_BEATS = 2
+# How far a phrase boundary may move to clear a word, in *bars* either side.
+# Whole-bar steps keep a shifted cut on a downbeat (the phrase grid is
+# downbeat-anchored); single-beat shifts would clear the word but knock the
+# cut off the bar line.
+VOCAL_SHIFT_MAX_BARS = 2
 # When vocals are continuous across every candidate beat (no word-clear cut
 # possible), merge the boundary away instead — don't cut mid-line — unless the
 # combined hold would exceed this. 0 disables merging (boundary stays on beat).
@@ -632,14 +635,16 @@ def _merge_phrase_pair(a, b):
     )
 
 
-def adjust_cuts_for_vocals(phrase_features, lyric_segments, beat_times):
+def adjust_cuts_for_vocals(phrase_features, lyric_segments, beat_times,
+                           beats_per_bar=4):
     """Keep phrase boundaries off sung words.
 
     For each interior boundary that falls inside a word span (±VOCAL_WORD_PAD_SEC):
-    1. Try beats within ±VOCAL_SHIFT_MAX_BEATS, nearest first, taking the first
-       one clear of all words. Clearance relaxes progressively (comfortable pad
-       → tight pad → strict inter-word gap): a cut squeezed between two words
-       still beats one that bisects a word.
+    1. Try whole-bar shifts within ±VOCAL_SHIFT_MAX_BARS, nearest first, taking
+       the first one clear of all words. Whole-bar steps keep the moved cut on a
+       downbeat. Clearance relaxes progressively (comfortable pad → tight pad →
+       strict inter-word gap): a cut squeezed between two words still beats one
+       that bisects a word.
     2. If every candidate is mid-word (continuous vocals), don't cut mid-line:
        merge the two phrases into one hold, unless the combined duration would
        exceed VOCAL_MERGE_MAX_SEC — then the boundary stays put (an on-beat
@@ -678,10 +683,11 @@ def adjust_cuts_for_vocals(phrase_features, lyric_segments, beat_times):
             continue
 
         idx = int(np.searchsorted(bt, boundary))
-        candidates = [float(bt[j])
-                      for j in range(idx - VOCAL_SHIFT_MAX_BEATS,
-                                     idx + VOCAL_SHIFT_MAX_BEATS + 1)
-                      if 0 <= j < len(bt)]
+        # Whole-bar shift candidates only — a moved cut stays on a downbeat.
+        cand_idx = []
+        for m in range(1, VOCAL_SHIFT_MAX_BARS + 1):
+            cand_idx += [idx - m * beats_per_bar, idx + m * beats_per_bar]
+        candidates = [float(bt[j]) for j in cand_idx if 0 <= j < len(bt)]
         candidates.sort(key=lambda t: abs(t - boundary))
 
         def usable(t, pad):
@@ -2134,6 +2140,12 @@ def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=No
     if global_state:
         global_state["current_set_clips"] = len(selections)
 
+    # Plan-only: stop before the (expensive) clip extraction + render.
+    if getattr(args, "plan_only", False):
+        print(f"\n  [plan-only] Wrote {len(selections)} selections to {plan_path}")
+        print(f"  [plan-only] Skipping render.")
+        return True, len(selections)
+
     # ── 5. Assemble video ──
     print(f"\n  [5/5] Assembling video ({len(selections)} clips)")
     t0 = time.time()
@@ -2188,6 +2200,8 @@ def main():
     parser.add_argument("-o", "--output", type=str, default=None,
                         help="Output video path (auto-named if omitted)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--plan-only", action="store_true",
+                        help="Write selection_plan_v2.json and stop before rendering")
     parser.add_argument("--verify-text", action="store_true",
                         help="After rendering, re-check the output for lingering "
                              "English text (scripts/check_render_text.py)")
