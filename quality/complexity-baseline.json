@@ -1,0 +1,747 @@
+{
+ "provenance": {
+  "tool": "lizard",
+  "version": "1.24.0",
+  "config": "df7426f691a5"
+ },
+ "entries": [
+  {
+   "file": "assemble_v2.py",
+   "text": "def run_set(set_name, set_config, args, set_idx=1, total_sets=1, global_state=None):",
+   "cc": 93,
+   "lines": 347
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def select_clips(scenes, phrase_features, style_hints=None, beat_times=None):",
+   "cc": 90,
+   "lines": 446
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def build_scene_database(text_seconds=None, salvage=True):",
+   "cc": 54,
+   "lines": 201
+  },
+  {
+   "file": "audit_output.py",
+   "text": "def audit_file(fp: str) -> dict:",
+   "cc": 48,
+   "lines": 164
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def score_scene(clip: SceneClip, phrase: PhraseFeatures, style_hints=None,",
+   "cc": 46,
+   "lines": 208
+  },
+  {
+   "file": "bench/hybrid.py",
+   "text": "def compose(spec: HybridSpec) -> Tuple[Dict[str, dict], dict]:",
+   "cc": 41,
+   "lines": 104
+  },
+  {
+   "file": "reprocess_pass2.py",
+   "text": "def main():",
+   "cc": 41,
+   "lines": 171
+  },
+  {
+   "file": "analyze_dj_set_deep.py",
+   "text": "def analyze_tracks_deep(track_segments, beat_times, beat_features, bpm_timeline,",
+   "cc": 39,
+   "lines": 86
+  },
+  {
+   "file": "enrich_analyses.py",
+   "text": "def run_sampling_plan(source_dir, video_filter=None, dry_run=False, only_new=False):",
+   "cc": 38,
+   "lines": 150
+  },
+  {
+   "file": "enrich_analyses.py",
+   "text": "def run_reenrich_flagged(source_dir, quality_threshold=0.5, video_filter=None,",
+   "cc": 36,
+   "lines": 133
+  },
+  {
+   "file": "vision_model_contest.py",
+   "text": "def run_contest(source_dir):",
+   "cc": 36,
+   "lines": 188
+  },
+  {
+   "file": "enrich_analyses.py",
+   "text": "def run_pipeline(source_dir, video_filter=None, dry_run=False, limit=None):",
+   "cc": 35,
+   "lines": 220
+  },
+  {
+   "file": "scan_text_fast.py",
+   "text": "def scan_video_two_pass(name, source_path, duration, frames_dir, skip_confirm=False):",
+   "cc": 35,
+   "lines": 166
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def extract_phrase_features(data, phrases):",
+   "cc": 34,
+   "lines": 125
+  },
+  {
+   "file": "analyze_footage.py",
+   "text": "def main():",
+   "cc": 32,
+   "lines": 185
+  },
+  {
+   "file": "analyze_visuals_library.py",
+   "text": "def run_tier(tier_name: str, files: list[dict], output_dir: str,",
+   "cc": 32,
+   "lines": 122
+  },
+  {
+   "file": "assemble_music_video.py",
+   "text": "def extract_phrase_features(data, phrases):",
+   "cc": 31,
+   "lines": 93
+  },
+  {
+   "file": "analyze_visuals_library.py",
+   "text": "def main():",
+   "cc": 30,
+   "lines": 183
+  },
+  {
+   "file": "scripts/audit_repeats.py",
+   "text": "def audit(selections: list, scene_lookup: dict) -> dict:",
+   "cc": 30,
+   "lines": 114
+  },
+  {
+   "file": "analyze_dj_set_deep.py",
+   "text": "def analyze_deep(audio_path, tracklist_path=None, anchor_phrases=False):",
+   "cc": 15,
+   "lines": 218
+  },
+  {
+   "file": "render_sizzle.py",
+   "text": "def render_frame(t, data, particles, prev_beat_t, frame_idx):",
+   "cc": 18,
+   "lines": 217
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def assign_song_source_pools(phrase_features, scenes, style_hints=None,",
+   "cc": 28,
+   "lines": 73
+  },
+  {
+   "file": "scan_text.py",
+   "text": "def main():",
+   "cc": 28,
+   "lines": 167
+  },
+  {
+   "file": "bench/sampler.py",
+   "text": "def build_plan_for_video(rec, work_dir, max_states=None, force=False):",
+   "cc": 26,
+   "lines": 113
+  },
+  {
+   "file": "bench/config.py",
+   "text": "def resolve_source(analysis_path, analysis_data, source_dirs=None):",
+   "cc": 24,
+   "lines": 38
+  },
+  {
+   "file": "enrich_audio.py",
+   "text": "def enrich_set(set_name, analysis_path, audio_path, tagger, backend, args):",
+   "cc": 24,
+   "lines": 111
+  },
+  {
+   "file": "media_analyzer/cli.py",
+   "text": "def batch_analyze(args):",
+   "cc": 24,
+   "lines": 93
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def _beatlock_cycle(natural_cycle_sec, bpm, beats=None, start_sec=0.0, n_frames=0):",
+   "cc": 22,
+   "lines": 58
+  },
+  {
+   "file": "bench/metrics.py",
+   "text": "def score_engine(engine_name, frames, plan_states_present, *, is_ceiling=False,",
+   "cc": 22,
+   "lines": 72
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def adjust_cuts_for_vocals(phrase_features, lyric_segments, beat_times):",
+   "cc": 21,
+   "lines": 77
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def assemble_video(selections, output_path, audio_path, output_dir=None, global_state=None):",
+   "cc": 21,
+   "lines": 146
+  },
+  {
+   "file": "audit_output.py",
+   "text": "def main():",
+   "cc": 21,
+   "lines": 103
+  },
+  {
+   "file": "bench/hybrid.py",
+   "text": "def _eval_predicate(frame: dict, pred: dict) -> bool:",
+   "cc": 21,
+   "lines": 25
+  },
+  {
+   "file": "scripts/audit_semantics.py",
+   "text": "def main() -> int:",
+   "cc": 20,
+   "lines": 69
+  },
+  {
+   "file": "scripts/canonicalize_tags.py",
+   "text": "def main() -> int:",
+   "cc": 20,
+   "lines": 94
+  },
+  {
+   "file": "bench/hybrid.py",
+   "text": "def cascade_run(spec_name: str, n_sample: int = 30, seed: int = 42) -> dict:",
+   "cc": 19,
+   "lines": 112
+  },
+  {
+   "file": "media_analyzer/audio_analyzer.py",
+   "text": "def infer_mood(energy: dict, spectral: dict, key_info: dict, tempo: float) -> dict[str, Any]:",
+   "cc": 19,
+   "lines": 76
+  },
+  {
+   "file": "scan_text_fast.py",
+   "text": "def main():",
+   "cc": 19,
+   "lines": 141
+  },
+  {
+   "file": "scripts/remap_media_paths.py",
+   "text": "def main() -> int:",
+   "cc": 19,
+   "lines": 55
+  },
+  {
+   "file": "vision_schema.py",
+   "text": "def _coerce_list(raw):",
+   "cc": 19,
+   "lines": 41
+  },
+  {
+   "file": "analyze_dj_set.py",
+   "text": "def analyze_track_segment(y, sr, segment, beat_times, bpm_timeline, energy_timeline):",
+   "cc": 18,
+   "lines": 33
+  },
+  {
+   "file": "analyze_dj_set.py",
+   "text": "def analyze_dj_set(audio_path, tracklist_path=None, sr=22050, energy_fps=4,",
+   "cc": 14,
+   "lines": 135
+  },
+  {
+   "file": "assemble_music_video.py",
+   "text": "def build_clip_database():",
+   "cc": 18,
+   "lines": 79
+  },
+  {
+   "file": "assemble_music_video.py",
+   "text": "def score_clip(clip: ClipInfo, phrase: PhraseFeatures) -> float:",
+   "cc": 18,
+   "lines": 54
+  },
+  {
+   "file": "bench/runner.py",
+   "text": "def run_baseline(registry):",
+   "cc": 18,
+   "lines": 45
+  },
+  {
+   "file": "enrich_audio.py",
+   "text": "def __init__(self, deep):",
+   "cc": 18,
+   "lines": 24
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def main():",
+   "cc": 17,
+   "lines": 109
+  },
+  {
+   "file": "bench_run.py",
+   "text": "def main():",
+   "cc": 17,
+   "lines": 84
+  },
+  {
+   "file": "extract_lyrics.py",
+   "text": "def main():",
+   "cc": 17,
+   "lines": 94
+  },
+  {
+   "file": "bench/report.py",
+   "text": "def dump_video(registry, video_substr, engines, results_dir=None):",
+   "cc": 16,
+   "lines": 33
+  },
+  {
+   "file": "bench/runner.py",
+   "text": "def run_vlm_engine(engine_name, registry, save_every=5):",
+   "cc": 16,
+   "lines": 58
+  },
+  {
+   "file": "detect_loops.py",
+   "text": "def main():",
+   "cc": 16,
+   "lines": 85
+  },
+  {
+   "file": "render_sizzle.py",
+   "text": "def main():",
+   "cc": 10,
+   "lines": 120
+  },
+  {
+   "file": "assemble_music_video.py",
+   "text": "def main():",
+   "cc": 14,
+   "lines": 117
+  },
+  {
+   "file": "analyze_dj_set_deep.py",
+   "text": "def validate_beat_grid(beat_times, bpm_timeline, global_bpm):",
+   "cc": 15,
+   "lines": 90
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def extract_clip(source_path, start_sec, output_path, n_frames,",
+   "cc": 15,
+   "lines": 87
+  },
+  {
+   "file": "enrich_analyses.py",
+   "text": "def build_enriched_output(analysis_data, frame_results):",
+   "cc": 15,
+   "lines": 59
+  },
+  {
+   "file": "enrich_audio.py",
+   "text": "def build_sections(deep, target_sec):",
+   "cc": 15,
+   "lines": 35
+  },
+  {
+   "file": "scripts/audit_cut_alignment.py",
+   "text": "def emit_report(results: list[dict], out_path: Path) -> None:",
+   "cc": 15,
+   "lines": 55
+  },
+  {
+   "file": "scripts/check_render_text.py",
+   "text": "def main() -> int:",
+   "cc": 15,
+   "lines": 75
+  },
+  {
+   "file": "smoke_test.py",
+   "text": "def cut_timing_checks():",
+   "cc": 15,
+   "lines": 63
+  },
+  {
+   "file": "vision_model_contest.py",
+   "text": "def show_comparison(video_filter=None):",
+   "cc": 15,
+   "lines": 51
+  },
+  {
+   "file": "analyze_dj_set.py",
+   "text": "def detect_transitions(energy_timeline, bpm_timeline, track_segments):",
+   "cc": 14,
+   "lines": 42
+  },
+  {
+   "file": "bench/runner.py",
+   "text": "def score_all(registry, engines):",
+   "cc": 14,
+   "lines": 50
+  },
+  {
+   "file": "generate_clip_embeddings.py",
+   "text": "def main():",
+   "cc": 14,
+   "lines": 74
+  },
+  {
+   "file": "scripts/segment_songs.py",
+   "text": "def _key_novelty(data, grid):",
+   "cc": 14,
+   "lines": 21
+  },
+  {
+   "file": "scripts/segment_songs.py",
+   "text": "def _build_tracks(boundaries, data, prefix=\"track\"):",
+   "cc": 14,
+   "lines": 29
+  },
+  {
+   "file": "vision_model_contest.py",
+   "text": "def show_status():",
+   "cc": 14,
+   "lines": 52
+  },
+  {
+   "file": "vision_schema.py",
+   "text": "def _snap_enum(raw, allowed):",
+   "cc": 14,
+   "lines": 32
+  },
+  {
+   "file": "vision_schema.py",
+   "text": "def normalize_analysis(parsed):",
+   "cc": 14,
+   "lines": 54
+  },
+  {
+   "file": "bench_label.py",
+   "text": "def main():",
+   "cc": 13,
+   "lines": 40
+  },
+  {
+   "file": "query_scenes.py",
+   "text": "def main():",
+   "cc": 13,
+   "lines": 56
+  },
+  {
+   "file": "scripts/segment_songs.py",
+   "text": "def _energy_novelty(data, grid):",
+   "cc": 13,
+   "lines": 27
+  },
+  {
+   "file": "extract_lyrics.py",
+   "text": "def run_set(set_name, set_config):",
+   "cc": 8,
+   "lines": 94
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def scene_text_spans(clip_source_name, start_sec, end_sec, text_seconds):",
+   "cc": 12,
+   "lines": 23
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def compute_perceptual_diversity(selections, scenes):",
+   "cc": 12,
+   "lines": 65
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def _source_profiles(scenes):",
+   "cc": 12,
+   "lines": 20
+  },
+  {
+   "file": "bench/groundtruth.py",
+   "text": "def propose_text_frames(registry, target_per_video=None, target_positive_frac=0.35):",
+   "cc": 12,
+   "lines": 34
+  },
+  {
+   "file": "bench/judge.py",
+   "text": "def judge_engine(backend, frames, sample_n=40, seed=42):",
+   "cc": 12,
+   "lines": 44
+  },
+  {
+   "file": "bench/metrics.py",
+   "text": "def text_prf(preds, labels):",
+   "cc": 12,
+   "lines": 23
+  },
+  {
+   "file": "cleanup_enrichment.py",
+   "text": "def main():",
+   "cc": 12,
+   "lines": 90
+  },
+  {
+   "file": "enrich_analyses.py",
+   "text": "def _scene_is_flagged(scene, quality_by_index, quality_threshold, worklist_indices=None):",
+   "cc": 12,
+   "lines": 25
+  },
+  {
+   "file": "enrich_audio.py",
+   "text": "def main():",
+   "cc": 12,
+   "lines": 64
+  },
+  {
+   "file": "extract_lyrics.py",
+   "text": "def map_to_tracks(segments, analysis_path):",
+   "cc": 12,
+   "lines": 43
+  },
+  {
+   "file": "media_paths.py",
+   "text": "def find_source(file_info):",
+   "cc": 12,
+   "lines": 26
+  },
+  {
+   "file": "vision_backends.py",
+   "text": "def analyze_frame(self, image_path, prompt):",
+   "cc": 12,
+   "lines": 39
+  },
+  {
+   "file": "vision_backends.py",
+   "text": "def analyze_text(self, prompt):",
+   "cc": 12,
+   "lines": 32
+  },
+  {
+   "file": "analyze_dj_set_deep.py",
+   "text": "def detect_phrases(beat_times, beat_features, beats_per_bar=4, anchor_offset=0):",
+   "cc": 11,
+   "lines": 47
+  },
+  {
+   "file": "enrich_analyses.py",
+   "text": "def find_source_video(analysis_data, analysis_path, source_dir):",
+   "cc": 11,
+   "lines": 27
+  },
+  {
+   "file": "flag_quality.py",
+   "text": "def process_file(enriched_path):",
+   "cc": 11,
+   "lines": 57
+  },
+  {
+   "file": "flag_quality.py",
+   "text": "def main():",
+   "cc": 11,
+   "lines": 32
+  },
+  {
+   "file": "media_analyzer/video_analyzer.py",
+   "text": "def get_video_metadata(filepath: str) -> dict[str, Any]:",
+   "cc": 11,
+   "lines": 54
+  },
+  {
+   "file": "media_analyzer/video_analyzer.py",
+   "text": "def _detect_scenes_opencv(filepath: str, threshold: float,",
+   "cc": 11,
+   "lines": 55
+  },
+  {
+   "file": "media_paths.py",
+   "text": "def iter_footage(refresh=False):",
+   "cc": 11,
+   "lines": 18
+  },
+  {
+   "file": "assemble_music_video.py",
+   "text": "def assemble_video(selections, output_path, audio_path):",
+   "cc": 8,
+   "lines": 79
+  },
+  {
+   "file": "detect_loops.py",
+   "text": "def find_source_video(file_info):",
+   "cc": 10,
+   "lines": 15
+  },
+  {
+   "file": "enrich_audio.py",
+   "text": "def section(self, start, end):",
+   "cc": 10,
+   "lines": 38
+  },
+  {
+   "file": "enrich_audio.py",
+   "text": "def compose_section(backend, section, features, tags, lyrics, n_sections,",
+   "cc": 10,
+   "lines": 44
+  },
+  {
+   "file": "extract_lyrics.py",
+   "text": "def separate_vocals(audio_path, output_dir):",
+   "cc": 10,
+   "lines": 60
+  },
+  {
+   "file": "flag_quality.py",
+   "text": "def compute_scene_metrics(scene, brightness_tl, motion_tl):",
+   "cc": 10,
+   "lines": 36
+  },
+  {
+   "file": "generate_clip_embeddings.py",
+   "text": "def find_source_video(file_info):",
+   "cc": 10,
+   "lines": 15
+  },
+  {
+   "file": "generate_clip_embeddings.py",
+   "text": "def process_video(enriched_path, batch_size):",
+   "cc": 10,
+   "lines": 59
+  },
+  {
+   "file": "query_scenes.py",
+   "text": "def build_index():",
+   "cc": 10,
+   "lines": 47
+  },
+  {
+   "file": "vision_model_contest.py",
+   "text": "def extract_frames(video_path, video_name):",
+   "cc": 10,
+   "lines": 42
+  },
+  {
+   "file": "enrich_analyses.py",
+   "text": "def main():",
+   "cc": 8,
+   "lines": 73
+  },
+  {
+   "file": "scripts/audit_repeats.py",
+   "text": "def emit_report(findings: dict, out_path: Path, set_name: str) -> None:",
+   "cc": 9,
+   "lines": 73
+  },
+  {
+   "file": "scripts/capture_perceptual_baseline.py",
+   "text": "def main() -> int:",
+   "cc": 6,
+   "lines": 68
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def mmr_rerank(scored, prev_embeddings, lam, embed_dim=512):",
+   "cc": 9,
+   "lines": 66
+  },
+  {
+   "file": "assemble_v2.py",
+   "text": "def merge_phrases_adaptive(phrase_features):",
+   "cc": 9,
+   "lines": 48
+  },
+  {
+   "file": "bench/sampler.py",
+   "text": "def build_plans(registry, work_dir=None, max_states=None, force=False, filt=None):",
+   "cc": 9,
+   "lines": 23
+  },
+  {
+   "file": "enrich_analyses.py",
+   "text": "def try_parse_json(text):",
+   "cc": 9,
+   "lines": 28
+  },
+  {
+   "file": "scan_text.py",
+   "text": "def find_source_video(analysis_name):",
+   "cc": 9,
+   "lines": 25
+  },
+  {
+   "file": "scan_text.py",
+   "text": "def show_status():",
+   "cc": 9,
+   "lines": 49
+  },
+  {
+   "file": "scan_text_fast.py",
+   "text": "def find_source_video(analysis_name):",
+   "cc": 9,
+   "lines": 19
+  },
+  {
+   "file": "scripts/check_render_text.py",
+   "text": "def update_flags(confirmed_hits):",
+   "cc": 9,
+   "lines": 39
+  },
+  {
+   "file": "scripts/flag_content_safety.py",
+   "text": "def scan():",
+   "cc": 9,
+   "lines": 24
+  },
+  {
+   "file": "scripts/remap_media_paths.py",
+   "text": "def collect_hash_suffix_pairs():",
+   "cc": 9,
+   "lines": 16
+  },
+  {
+   "file": "smoke_test.py",
+   "text": "def bench_checks(rng):",
+   "cc": 9,
+   "lines": 65
+  },
+  {
+   "file": "vision_model_contest.py",
+   "text": "def get_scene_times(video_name):",
+   "cc": 9,
+   "lines": 25
+  },
+  {
+   "file": "vision_schema.py",
+   "text": "def _coerce_bool(raw):",
+   "cc": 9,
+   "lines": 22
+  },
+  {
+   "file": "analyze_visuals_library.py",
+   "text": "def analyze_one(filepath: str, output_path: str, tier: str,",
+   "cc": 6,
+   "lines": 64
+  },
+  {
+   "file": "media_analyzer/video_analyzer.py",
+   "text": "def analyze_colors(filepath: str, sample_interval_sec: float = 1.0,",
+   "cc": 8,
+   "lines": 64
+  },
+  {
+   "file": "text_detect.py",
+   "text": "def detect_text_east(image_path):",
+   "cc": 8,
+   "lines": 62
+  }
+ ]
+}

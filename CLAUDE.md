@@ -27,3 +27,15 @@ Guidance for Claude Code (and other agents) working in this repo.
 
 ## Environment
 macOS on Apple Silicon (64 GB). Prefer `python3 -m venv` / the provided `setup.sh`; FFmpeg via Homebrew.
+
+## Quality gates (cleat)
+
+`python3 quality/bin/gate.py` runs every quality gate; it also runs when you
+stop, and a failing gate is handed back to you as the next thing to fix. A
+failure names the file, the line and what fixes it — split the function, give
+the value its real type, make the test pass, handle the error.
+
+Do not edit `quality.json`, anything under `quality/`, or the hooks to make a
+gate pass, and do not run `--write-baseline`: the baselines record debt a
+person accepted, and only a person loosens them, in a reviewed commit. The
+gates only ever tighten; that is the point.

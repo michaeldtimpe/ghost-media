@@ -1,0 +1,80 @@
+{
+  "project": "ghost-media",
+  "doc_size": [
+    {
+      "file": "CLAUDE.md",
+      "ceiling": 700
+    },
+    {
+      "file": "AGENTS.md",
+      "ceiling": 2300
+    },
+    {
+      "file": "README.md",
+      "ceiling": 800
+    }
+  ],
+  "escapes": {
+    "roots": [
+      "."
+    ],
+    "languages": [
+      "python",
+      "shell"
+    ],
+    "skip_dirs": [
+      "quality"
+    ],
+    "baseline": "quality/escapes-baseline.json"
+  },
+  "duplication": {
+    "roots": [
+      "."
+    ],
+    "languages": [
+      "python",
+      "shell"
+    ],
+    "skip_dirs": [
+      "quality"
+    ],
+    "min_lines": 6,
+    "baseline": "quality/duplication-baseline.json"
+  },
+  "complexity": {
+    "tool": "lizard",
+    "sources": [
+      "."
+    ],
+    "languages": [
+      "python"
+    ],
+    "exclude": [
+      "*/.build/*",
+      "*/.claude/*",
+      "*/.git/*",
+      "*/.github/*",
+      "*/.idea/*",
+      "*/.next/*",
+      "*/.venv/*",
+      "*/.vscode/*",
+      "*/DerivedData/*",
+      "*/Pods/*",
+      "*/__pycache__/*",
+      "*/build/*",
+      "*/coverage/*",
+      "*/dist/*",
+      "*/node_modules/*",
+      "*/out/*",
+      "*/quality/*",
+      "*/target/*",
+      "*/vendor/*",
+      "*/venv/*"
+    ],
+    "ceilings": {
+      "cc": 8,
+      "lines": 60
+    },
+    "baseline": "quality/complexity-baseline.json"
+  }
+}

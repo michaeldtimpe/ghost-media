@@ -71,3 +71,5 @@ analysis_output/
 !examples/*.json
 audit_semantics_worklist.json
 .luxe/
+quality/.running/
+quality/.events.jsonl
