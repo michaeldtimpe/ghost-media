@@ -1,0 +1,75 @@
+{
+ "provenance": {
+  "tool": "escapes",
+  "version": "1",
+  "config": "9d69617a3480"
+ },
+ "entries": [
+  {
+   "file": "bench/mlx_backend.py",
+   "text": "from vision_backends import MLXVisionBackend  # noqa: F401",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "scan_text_fast.py",
+   "text": "from text_detect import (  # noqa: E402",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "scripts/audit_cut_alignment.py",
+   "text": "import assemble_v2 as av  # noqa: E402",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "scripts/audit_repeats.py",
+   "text": "import assemble_v2 as av  # noqa: E402",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "scripts/canonicalize_tags.py",
+   "text": "import torch  # noqa: F401  (ensures torch import error surfaces early)",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "scripts/capture_perceptual_baseline.py",
+   "text": "import assemble_v2 as av  # noqa: E402",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "scripts/check_render_text.py",
+   "text": "from text_detect import (  # noqa: E402",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "scripts/remap_media_paths.py",
+   "text": "import media_paths as mp  # noqa: E402",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "vision_backends.py",
+   "text": "import anthropic  # noqa: F401",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "vision_backends.py",
+   "text": "import mlx_vlm  # noqa: F401",
+   "escape": "noqa",
+   "count": 1
+  },
+  {
+   "file": "vision_backends.py",
+   "text": "import mlx.core  # noqa: F401",
+   "escape": "noqa",
+   "count": 1
+  }
+ ]
+}

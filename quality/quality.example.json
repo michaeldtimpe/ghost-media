@@ -1,0 +1,121 @@
+{
+  "project": "cleat",
+  "complexity": {
+    "tool": "lizard",
+    "sources": [
+      "quality/bin"
+    ],
+    "languages": [
+      "python"
+    ],
+    "exclude": [],
+    "ceilings": {
+      "cc": 8,
+      "lines": 60
+    },
+    "baseline": "quality/complexity-baseline.json"
+  },
+  "hygiene": {
+    "roots": [
+      "quality/tests"
+    ],
+    "skip_dirs": [],
+    "extensions": [
+      ".py",
+      ".sh"
+    ],
+    "habits": {
+      "fixed sleeps": {
+        "pattern": "time\\.sleep\\(",
+        "ceiling": 3,
+        "use": "poll for the condition; the three baselined matches are test-mutate.py's timeout fixtures and test-attach.py's fixture project"
+      }
+    }
+  },
+  "doc_size": [
+    {
+      "file": "README.md",
+      "ceiling": 1200
+    },
+    {
+      "file": "quality/README.md",
+      "ceiling": 1700
+    },
+    {
+      "file": "quality/STRATEGY.md",
+      "ceiling": 3000
+    },
+    {
+      "file": "CONTRIBUTING.md",
+      "ceiling": 700
+    }
+  ],
+  "escapes": {
+    "roots": [
+      "quality"
+    ],
+    "languages": [
+      "python",
+      "shell"
+    ],
+    "baseline": "quality/escapes-baseline.json",
+    "skip_dirs": [
+      "fixtures"
+    ]
+  },
+  "duplication": {
+    "roots": [
+      "quality/bin",
+      "quality/tests"
+    ],
+    "languages": [
+      "python"
+    ],
+    "skip_dirs": [
+      "fixtures"
+    ],
+    "min_lines": 10,
+    "baseline": "quality/duplication-baseline.json"
+  },
+  "doc_citations": [
+    {
+      "file": "README.md",
+      "roots": [
+        "."
+      ],
+      "extensions": [
+        ".py",
+        ".sh",
+        ".md"
+      ]
+    },
+    {
+      "file": "quality/README.md",
+      "roots": [
+        "quality/bin",
+        "quality/tests",
+        "quality",
+        "."
+      ],
+      "extensions": [
+        ".py",
+        ".sh",
+        ".md"
+      ]
+    },
+    {
+      "file": "CONTRIBUTING.md",
+      "roots": [
+        "quality/bin",
+        "quality/tests",
+        "quality",
+        "."
+      ],
+      "extensions": [
+        ".py",
+        ".sh",
+        ".md"
+      ]
+    }
+  ]
+}
