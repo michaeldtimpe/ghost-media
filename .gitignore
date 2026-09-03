@@ -71,5 +71,9 @@ analysis_output/
 !examples/*.json
 audit_semantics_worklist.json
 .luxe/
+
+# ─── Local media symlink → external archive volume ────────
+/sets
+
 quality/.running/
 quality/.events.jsonl
